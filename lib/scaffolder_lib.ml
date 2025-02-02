@@ -54,10 +54,13 @@ let scaffold target_dir =
   write_file (full_path "lib/home.ml") Templates_lib.dir_lib_file_home_ext_ml;
 
   ensure_full_path (full_path "lib");
-  write_file (full_path "lib/about.ml") Templates_lib.dir_lib_file_about_ext_ml;
+  write_file (full_path "lib/login.ml") Templates_lib.dir_lib_file_login_ext_ml;
 
   ensure_full_path (full_path "lib");
-  write_file (full_path "lib/auth.ml") Templates_lib.dir_lib_file_auth_ext_ml;
+  write_file (full_path "lib/logout.ml") Templates_lib.dir_lib_file_logout_ext_ml;
+
+  ensure_full_path (full_path "lib");
+  write_file (full_path "lib/about.ml") Templates_lib.dir_lib_file_about_ext_ml;
 
   ensure_full_path (full_path "lib");
   write_file (full_path "lib/session.ml") Templates_lib.dir_lib_file_session_ext_ml;

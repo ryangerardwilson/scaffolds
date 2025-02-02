@@ -9,8 +9,8 @@ let routes = [
   ("/", Landing.handle_landing);
   ("/home", Home.handle_root);
   ("/about", About.handle_about);
-  ("/login", Auth.handle_login);
-  ("/logout", Auth.handle_logout);
+  ("/login", Login.handle_login);
+  ("/logout", Logout.handle_logout);
   ("/dashboard", Dashboard.handle_dashboard);
 ]
 
@@ -68,7 +68,10 @@ ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
   -I utils -I lib lib/about.ml
 
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/auth.ml
+  -I utils -I lib lib/login.ml
+
+ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
+  -I utils -I lib lib/logout.ml
 
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
   -I utils -I lib lib/dashboard.ml
@@ -84,7 +87,8 @@ ocamlfind ocamlc -thread -package cohttp-lwt-unix,dotenv,str,base64 -linkpkg \
   lib/landing.cmo \
   lib/home.cmo \
   lib/about.cmo \
-  lib/auth.cmo \
+  lib/login.cmo \
+  lib/logout.cmo \
   lib/dashboard.cmo \
   main.cmo
 
@@ -101,22 +105,173 @@ fi
 |}
 
 let dir_utils_file_renderer_ext_ml = {|
-
 open Cohttp
 open Cohttp_lwt_unix
 open Lwt.Infix
 
-let server_side_render (filename : string) (substitutions : (string * string) list) : (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t =
-  (* Allow user to specify a PUBLIC_DIR via environment variable; defaults to "dist" *)
+(* 
+    Global session storage means than for x number users, x session 
+    storage objects will be stored in memory at any given point of time 
+    if they login together
+
+    Each active user session corresponds to an object stored in memory. 
+    So, for `x` users logged in simultaneously, there will be `x` 
+    session objects in memory. For apps with less than 100,000 users, 
+    this approach is often feasible, provided:
+
+    - **Efficient Use of Data**: Session objects contain only necessary 
+        information to avoid excessive memory usage.
+    - **Memory Management**: Adequate system resources and monitoring 
+        help handle peak loads and avoid memory exhaustion.
+    - **Session Expiry**: Implementing session timeouts or expiration 
+        to automatically free up memory for inactive sessions.
+*)
+let session_store : (string, string) Hashtbl.t = Hashtbl.create 16
+
+(* Generates a random session_id, then associates it with the given username. *)
+let create_session ~(username : string) : string =
+  let rand_bytes = Bytes.create 16 in
+  for i = 0 to 15 do
+    Bytes.set rand_bytes i (char_of_int (Random.int 256))
+  done;
+  let session_id = Base64.encode_exn (Bytes.to_string rand_bytes) in
+  Hashtbl.replace session_store session_id username;
+  session_id
+
+(* Removes an existing session from the store by session ID in the request. *)
+let destroy_session (req : Cohttp.Request.t) : unit =
+  let extract_session_id (cookie_str : string) : string option =
+    let parts = String.split_on_char ';' cookie_str in
+    let find_sessionid kv =
+      let kv = String.trim kv in
+      if String.length kv >= 10 && String.sub kv 0 10 = "sessionid="
+      then Some (String.sub kv 10 (String.length kv - 10))
+      else None
+    in
+    List.fold_left
+      (fun acc item ->
+         match acc with
+         | None -> find_sessionid item
+         | Some _ -> acc)
+      None
+      parts
+  in
+
+  let cookie_header = Cohttp.Header.get (Request.headers req) "cookie" in
+  match cookie_header with
+  | None -> ()
+  | Some cookie_str ->
+      match extract_session_id cookie_str with
+      | Some session_id -> Hashtbl.remove session_store session_id
+      | None -> ()
+
+
+
+let handle_auth body_str =
+  (* Local function to create a session. *)
+  let create_session ~(username : string) : string =
+    let rand_bytes = Bytes.create 16 in
+    for i = 0 to 15 do
+      Bytes.set rand_bytes i (char_of_int (Random.int 256))
+    done;
+    let session_id = Base64.encode_exn (Bytes.to_string rand_bytes) in
+    Hashtbl.replace session_store session_id username;
+    session_id
+  in
+
+  (* Define valid users as a list of tuples (username, password) *)
+  let valid_users = [
+    ("admin", "secret");
+    ("bob", "bob123");
+    ("alice", "alice123");
+  ] in
+
+  let parse_post_body (body_str : string) : (string * string) list =
+    let parts = Str.split (Str.regexp_string "&") body_str in
+    List.map (fun part ->
+        match Str.bounded_split (Str.regexp_string "=") part 2 with
+        | [k; v] -> (k, v)
+        | _ -> ("", "")
+      ) parts
+  in
+
+  let form_data = parse_post_body body_str in
+  let username_submitted = List.assoc_opt "username" form_data |> Option.value ~default:"" in
+  let password_submitted = List.assoc_opt "password" form_data |> Option.value ~default:"" in
+
+  let maybe_user =
+    List.find_opt
+      (fun (username, password) -> username = username_submitted && password = password_submitted)
+      valid_users
+  in
+
+  match maybe_user with
+  | Some (username, _) ->
+      let session_id = create_session ~username in
+      let headers = Header.add (Header.init ()) "Set-Cookie"
+          ("sessionid=" ^ session_id ^ "; Path=/") in
+      Server.respond_redirect ~headers ~uri:(Uri.of_string "/dashboard") ()
+  | None ->
+      let body = "<h2>Login Failed</h2><p>Invalid credentials.</p>\
+                  <p><a href=\"/login\">Try again</a></p>" in
+      Server.respond_string ~status:`OK ~body ()
+
+
+
+
+
+(*
+  Given a cookie string (e.g., "sessionid=xyz; Path=/"), extract
+  the value of sessionid. 
+*)
+let handle_cookie (req : Request.t) : string option =
+  (* Inline function to extract session ID from a cookie string *)
+  let extract_session_id cookie_str =
+    let parts = String.split_on_char ';' cookie_str in
+    let rec find_sessionid = function
+      | [] -> None
+      | kv :: rest ->
+        let kv = String.trim kv in
+        if String.length kv >= 10 && String.sub kv 0 10 = "sessionid="
+        then Some (String.sub kv 10 (String.length kv - 10))
+        else find_sessionid rest
+    in
+    find_sessionid parts
+  in
+
+  (* Inline function to look up username for a given session ID *)
+  let get_username_for_session session_id =
+    Hashtbl.find_opt session_store session_id
+  in
+
+  let headers = Request.headers req in
+  match Header.get headers "cookie" with
+  | None -> None
+  | Some cookie_str ->
+    match extract_session_id cookie_str with
+    | None -> None
+    | Some sid ->
+      get_username_for_session sid
+
+
+(*
+  Renders an HTML file from disk (defaults to the "dist" directory),
+  performing string substitutions like [("{{USERNAME}}", "Alice"); ...].
+*)
+let server_side_render (filename : string) 
+                       (substitutions : (string * string) list)
+                       : (Cohttp.Response.t * Cohttp_lwt.Body.t) Lwt.t =
   let public_dir = Sys.getenv_opt "PUBLIC_DIR" |> Option.value ~default:"dist" in
   let filepath = Filename.concat public_dir filename in
-
   if Sys.file_exists filepath then
     Lwt_io.(with_file ~mode:Input filepath read) >>= fun content ->
     let replaced_content =
-      List.fold_left (fun acc (key, value) ->
-        Str.global_replace (Str.regexp_string key) value acc
-      ) content substitutions
+      List.fold_left
+        (fun acc (needle, replacement) ->
+           Str.global_replace (Str.regexp_string needle) replacement acc
+        )
+        content
+        substitutions
     in
     Server.respond_string ~status:`OK ~body:replaced_content ()
   else
@@ -124,6 +279,7 @@ let server_side_render (filename : string) (substitutions : (string * string) li
       ~status:`Not_found
       ~body:"File not found"
       ()
+
 
 |}
 
@@ -231,6 +387,42 @@ let handle_root _conn _req _body =
 
 |}
 
+let dir_lib_file_login_ext_ml = {|
+open Cohttp
+open Cohttp_lwt_unix
+open Lwt.Infix
+
+
+let handle_login _conn req body =
+  match Request.meth req with
+  | `GET ->
+      Renderer.server_side_render "login.html" []
+  | `POST ->
+      Cohttp_lwt.Body.to_string body >>= fun body_str ->
+      Renderer.handle_auth body_str
+  | _ ->
+      Server.respond_string ~status:`Method_not_allowed
+        ~body:"Method not allowed"
+        ()
+
+
+|}
+
+let dir_lib_file_logout_ext_ml = {|
+open Cohttp
+open Cohttp_lwt_unix
+open Lwt.Infix
+
+(* Handler for /logout *)
+let handle_logout _conn req _body =
+  (* Destroy the session associated with the request *)
+  Renderer.destroy_session req;
+  (* Redirect them to landing page ("/") or wherever you prefer *)
+  Server.respond_redirect ~uri:(Uri.of_string "/") ()
+
+
+|}
+
 let dir_lib_file_about_ext_ml = {|
 
 open Cohttp
@@ -244,96 +436,6 @@ let handle_about (_conn : Cohttp_lwt_unix.Server.conn) (_req : Cohttp.Request.t)
     ("{{ABOUT_CONTENT}}", "This is the about page content. 771");
   ] in
   Renderer.server_side_render filename substitutions
-
-|}
-
-let dir_lib_file_auth_ext_ml = {|
- 
-(* lib/Auth.ml *)
-
-open Cohttp
-open Cohttp_lwt_unix
-open Lwt.Infix
-open Str
-
-open Session
-
-type user = {
-  username: string;
-  password: string;
-  display_name: string;
-}
-
-let valid_users = [
-  { username = "admin"; password = "secret";   display_name = "Admin" };
-  { username = "bob";   password = "bob123";   display_name = "Bob"   };
-  { username = "alice"; password = "alice123"; display_name = "Alice" };
-]
-
-let parse_post_body body_str =
-  let parts = Str.split (Str.regexp_string "&") body_str in
-  List.map (fun part ->
-      match Str.bounded_split (Str.regexp_string "=") part 2 with
-      | [k; v] -> (k, v)
-      | _ -> ("", "")
-    ) parts
-
-(* A small helper to parse sessionid from a cookie. *)
-let get_session_id_from_cookie cookie_str =
-  let parts = String.split_on_char ';' cookie_str in
-  let find_sessionid kv =
-    let kv = String.trim kv in
-    if String.length kv >= 10 && String.sub kv 0 10 = "sessionid="
-    then Some (String.sub kv 10 (String.length kv - 10))
-    else None
-  in
-  List.fold_left
-    (fun acc item -> match acc with None -> find_sessionid item | Some _ -> acc)
-    None
-    parts
-
-(* /login *)
-let handle_login _conn req body =
-  match Request.meth req with
-  | `GET ->
-      Renderer.server_side_render "login.html" []
-  | `POST ->
-      Cohttp_lwt.Body.to_string body >>= fun body_str ->
-      let form_data = parse_post_body body_str in
-      let username_submitted = List.assoc_opt "username" form_data |> Option.value ~default:"" in
-      let password_submitted = List.assoc_opt "password" form_data |> Option.value ~default:"" in
-
-      let maybe_user =
-        List.find_opt
-          (fun u -> u.username = username_submitted && u.password = password_submitted)
-          valid_users
-      in
-      (match maybe_user with
-      | Some user ->
-          let session_id = create_session ~username:user.display_name in
-          let headers = Header.add (Header.init ()) "Set-Cookie" ("sessionid=" ^ session_id) in
-          (* Redirect to /dashboard on successful login *)
-          Server.respond_redirect ~headers ~uri:(Uri.of_string "/dashboard") ()
-      | None ->
-          let body = "<h2>Login Failed</h2><p>Invalid credentials.</p><p><a href=\"/login\">Try again</a></p>" in
-          Server.respond_string ~status:`OK ~body ())
-  | _ ->
-      Server.respond_string ~status:`Method_not_allowed ~body:"Method not allowed" ()
-
-(* /logout *)
-let handle_logout _conn req _body =
-  (* Check cookie for a valid sessionid, then destroy the session. *)
-  let cookie_header = Cohttp.Header.get (Request.headers req) "cookie" in
-  (match cookie_header with
-   | None -> ()
-   | Some cookie_str ->
-       (match get_session_id_from_cookie cookie_str with
-        | None -> ()
-        | Some session_id -> destroy_session session_id
-       )
-  );
-  (* Finally, redirect to landing page *)
-  Server.respond_redirect ~uri:(Uri.of_string "/") ()
 
 |}
 
@@ -369,51 +471,21 @@ let destroy_session session_id =
 |}
 
 let dir_lib_file_dashboard_ext_ml = {|
-
 open Cohttp
 open Cohttp_lwt_unix
 open Lwt.Infix
 
-open Session
-
-(* Some cookie parsing again. Ideally factor out to a shared utility. *)
-let get_session_id_from_cookie cookie_str =
-  let parts = String.split_on_char ';' cookie_str in
-  let find_sessionid kv =
-    let kv = String.trim kv in
-    if String.length kv >= 10 && String.sub kv 0 10 = "sessionid="
-    then Some (String.sub kv 10 (String.length kv - 10))
-    else None
-  in
-  List.fold_left
-    (fun acc item -> match acc with None -> find_sessionid item | Some _ -> acc)
-    None
-    parts
-
 let handle_dashboard _conn req _body =
-  let headers = Request.headers req in
-  let cookie_str = Cohttp.Header.get headers "cookie" in
-  match cookie_str with
+  match Renderer.handle_cookie req with
   | None ->
       Server.respond_string ~status:`Forbidden
-        ~body:"No session cookie. Please <a href=\"/login\">log in</a>."
+        ~body:"No valid session cookie or session expired. \
+               Please <a href=\"/login\">log in</a>."
         ()
-  | Some cookie ->
-      (match get_session_id_from_cookie cookie with
-       | None ->
-           Server.respond_string ~status:`Forbidden
-             ~body:"Missing sessionid in cookie. <a href=\"/login\">Log in</a>"
-             ()
-       | Some session_id ->
-           (match get_username_for_session session_id with
-            | None ->
-                Server.respond_string ~status:`Forbidden
-                  ~body:"Invalid/expired session. <a href=\"/login\">Log in</a>"
-                  ()
-            | Some username ->
-                let filename = "dashboard.html" in
-                let substitutions = [("{{USERNAME}}", username)] in
-                Renderer.server_side_render filename substitutions))
+  | Some username ->
+      let filename = "dashboard.html" in
+      let substitutions = [("{{USERNAME}}", username)] in
+      Renderer.server_side_render filename substitutions
 
 
 |}
