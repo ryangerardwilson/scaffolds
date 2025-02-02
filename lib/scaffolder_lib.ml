@@ -33,7 +33,7 @@ let scaffold target_dir =
   write_file (full_path "compile.sh") Templates_lib.file_compile_ext_sh;
 
   ensure_full_path (full_path "utils");
-  write_file (full_path "utils/Renderer.ml") Templates_lib.dir_utils_file_Renderer_ext_ml;
+  write_file (full_path "utils/renderer.ml") Templates_lib.dir_utils_file_renderer_ext_ml;
 
   ensure_full_path (full_path "resources");
   write_file (full_path "resources/about.html") Templates_lib.dir_resources_file_about_ext_html;
@@ -51,22 +51,22 @@ let scaffold target_dir =
   write_file (full_path "resources/dashboard.html") Templates_lib.dir_resources_file_dashboard_ext_html;
 
   ensure_full_path (full_path "lib");
-  write_file (full_path "lib/About.ml") Templates_lib.dir_lib_file_About_ext_ml;
+  write_file (full_path "lib/home.ml") Templates_lib.dir_lib_file_home_ext_ml;
 
   ensure_full_path (full_path "lib");
-  write_file (full_path "lib/Landing.ml") Templates_lib.dir_lib_file_Landing_ext_ml;
+  write_file (full_path "lib/about.ml") Templates_lib.dir_lib_file_about_ext_ml;
 
   ensure_full_path (full_path "lib");
-  write_file (full_path "lib/Auth.ml") Templates_lib.dir_lib_file_Auth_ext_ml;
+  write_file (full_path "lib/auth.ml") Templates_lib.dir_lib_file_auth_ext_ml;
 
   ensure_full_path (full_path "lib");
-  write_file (full_path "lib/Dashboard.ml") Templates_lib.dir_lib_file_Dashboard_ext_ml;
+  write_file (full_path "lib/session.ml") Templates_lib.dir_lib_file_session_ext_ml;
 
   ensure_full_path (full_path "lib");
-  write_file (full_path "lib/Home.ml") Templates_lib.dir_lib_file_Home_ext_ml;
+  write_file (full_path "lib/dashboard.ml") Templates_lib.dir_lib_file_dashboard_ext_ml;
 
   ensure_full_path (full_path "lib");
-  write_file (full_path "lib/Session.ml") Templates_lib.dir_lib_file_Session_ext_ml;
+  write_file (full_path "lib/landing.ml") Templates_lib.dir_lib_file_landing_ext_ml;
 
   (* Make compile.sh executable *)
   let compile_sh_path = full_path "compile.sh" in

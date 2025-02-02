@@ -3,25 +3,25 @@
 
 # Step 1: Compile modules
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib utils/Renderer.ml
+  -I utils -I lib utils/renderer.ml
 
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/Session.ml
+  -I utils -I lib lib/session.ml
 
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/Landing.ml
+  -I utils -I lib lib/landing.ml
 
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/Home.ml
+  -I utils -I lib lib/home.ml
 
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/About.ml
+  -I utils -I lib lib/about.ml
 
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/Auth.ml
+  -I utils -I lib lib/auth.ml
 
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/Dashboard.ml
+  -I utils -I lib lib/dashboard.ml
 
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
   -I utils -I lib main.ml
@@ -29,13 +29,13 @@ ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
 # Step 2: Link modules
 ocamlfind ocamlc -thread -package cohttp-lwt-unix,dotenv,str,base64 -linkpkg \
   -o app \
-  utils/Renderer.cmo \
-  lib/Session.cmo \
-  lib/Landing.cmo \
-  lib/Home.cmo \
-  lib/About.cmo \
-  lib/Auth.cmo \
-  lib/Dashboard.cmo \
+  utils/renderer.cmo \
+  lib/session.cmo \
+  lib/landing.cmo \
+  lib/home.cmo \
+  lib/about.cmo \
+  lib/auth.cmo \
+  lib/dashboard.cmo \
   main.cmo
 
 # Step 3: Clean .cmi, .cmo, .out
