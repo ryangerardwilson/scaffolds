@@ -6,8 +6,8 @@ let routes = [
   ("/", Landing.handle_landing);
   ("/home", Home.handle_root);
   ("/about", About.handle_about);
-  ("/login", Auth.handle_login);
-  ("/logout", Auth.handle_logout);
+  ("/login", Login.handle_login);
+  ("/logout", Logout.handle_logout);
   ("/dashboard", Dashboard.handle_dashboard);
 ]
 
