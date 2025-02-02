@@ -5,12 +5,10 @@ This tool is designed to perform scaffolding operations via the command line. Be
 ## 1. Features
 
 - Accepts a directory path as an argument and performs scaffolding operations on it.
-- Prints beautiful ASCII art upon execution.
 
 ## 2. Prerequisites
 
 Before you can run this application, ensure you have the following installed:
-
 - OCaml (and `ocamlc`, the OCaml compiler)
 
 ## 3. Setup
@@ -22,8 +20,9 @@ Before you can run this application, ensure you have the following installed:
 
 ### 3.2. Compile the Application:
 
-   # Navigate to where your `main.ml` file is located and run the OCaml compiler:
-   python compile.py
+Navigate to where your `main.ml` file is located and run the OCaml compiler:
+
+    python compile.py
 
 ## 4. Usage
 
