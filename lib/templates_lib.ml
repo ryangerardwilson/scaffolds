@@ -20,13 +20,9 @@ let route conn req body =
   | None ->
       Server.respond_string ~status:`Not_found ~body:"Not Found" ()
 
-let () = Dotenv.export ()
 
-let getenv_with_default var default =
-  try Sys.getenv var with Not_found -> default
-
-let app_name = getenv_with_default "APP_NAME" "My App"
-let port = int_of_string (getenv_with_default "PORT" "8080")
+let app_name = Sys.getenv "APP_NAME"
+let port = int_of_string (Sys.getenv "PORT")
 
 (* Ensure Random is seeded once *)
 let () = Random.self_init ()
@@ -40,7 +36,7 @@ let () =
 
 let ext_env = {|
 
-APP_NAME=xyz
+APP_NAME=YourApp
 PUBLIC_DIR=resources
 PORT=8080
 
@@ -118,6 +114,17 @@ open Lwt.Infix
         to automatically free up memory for inactive sessions.
 *)
 let session_store : (string, string) Hashtbl.t = Hashtbl.create 16
+
+(*
+    This line of code exports the env file in memory
+*)
+let () = Dotenv.export ()
+
+let get_env var =
+  try
+    Sys.getenv var
+  with
+  | Not_found -> "None"
 
 (* Generates a random session_id, then associates it with the given username. *)
 let create_session ~(username : string) : string =
@@ -201,14 +208,11 @@ let handle_auth body_str =
       let session_id = create_session ~username in
       let headers = Header.add (Header.init ()) "Set-Cookie"
           ("sessionid=" ^ session_id ^ "; Path=/") in
-      Server.respond_redirect ~headers ~uri:(Uri.of_string "/dashboard") ()
+      Ok (headers, Uri.of_string "/dashboard")
   | None ->
-      let body = "<h2>Login Failed</h2><p>Invalid credentials.</p>\
-                  <p><a href=\"/login\">Try again</a></p>" in
-      Server.respond_string ~status:`OK ~body ()
+      Error "Invalid credentials. Please try again."
 
-(* Determine if a user is logged in by checking the session *)
-(* Determine if a user is logged in by checking the session *)
+
 (* Determine if a user is logged in by checking the session *)
 let get_username_if_user_is_logged_in req =
   (* Function to extract session ID from cookie string; returns a string option *)
@@ -307,7 +311,7 @@ let server_side_render (filename : string)
 let dir_resources_file_about_ext_html = {|
 <html>
   <head>
-    <title>{{PAGE_TITLE}}</title>
+    <title>{{APP_NAME}}/ {{PAGE_TITLE}}</title>
   </head>
   <body>
     <h2>About Page</h1>
@@ -326,13 +330,13 @@ let dir_resources_file_about_ext_html = {|
 |}
 
 let dir_resources_file_login_ext_html = {|
-
 <html>
   <head>
-    <title>Login</title>
+    <title>{{APP_NAME}} / Login</title>
   </head>
   <body>
     <h2>Login</h2>
+    {{ERROR_MESSAGE}}
     <form method="POST" action="/login">
       <label>Username:
         <input type="text" name="username"/>
@@ -347,6 +351,7 @@ let dir_resources_file_login_ext_html = {|
   </body>
 </html>
 
+
 |}
 
 let dir_resources_file_landing_ext_html = {|
@@ -354,7 +359,7 @@ let dir_resources_file_landing_ext_html = {|
 <!-- dist/landing.html -->
 <html>
   <head>
-    <title>Landing Page</title>
+    <title>{{APP_NAME}}/ Landing Page</title>
   </head>
   <body>
     <h1>Welcome to Our Simple OCaml App</h1>
@@ -373,7 +378,7 @@ let dir_resources_file_dashboard_ext_html = {|
 
 <html>
   <head>
-    <title>Dashboard</title>
+    <title>{{APP_NAME}}/ Dashboard</title>
   </head>
   <body>
     <h1>Dashboard</h1>
@@ -391,16 +396,40 @@ open Lwt.Infix
 
 
 let handle_login _conn req body =
+  let app_name = Sys.getenv "APP_NAME" in
+  let substitutions = [
+    ("{{APP_NAME}}", app_name);
+    ("{{ERROR_MESSAGE}}", ""); 
+  ] in
+
   match Request.meth req with
   | `GET ->
-      Renderer.server_side_render "login.html" []
+      Renderer.server_side_render "login.html" substitutions >>= fun (response, body) ->
+      Cohttp_lwt.Body.to_string body >>= fun body_str ->
+      Server.respond_string ~status:`OK ~body:body_str ()
+
   | `POST ->
       Cohttp_lwt.Body.to_string body >>= fun body_str ->
-      Renderer.handle_auth body_str
+      let auth_result = Renderer.handle_auth body_str in
+      begin match auth_result with
+      | Ok (headers, uri) ->
+          Server.respond_redirect ~headers ~uri ()
+      | Error error_msg ->
+          let substitutions = [
+            ("{{APP_NAME}}", app_name);
+            ("{{ERROR_MESSAGE}}", error_msg); (* Default to no error message *)
+          ] in
+
+
+          let error_substitutions = substitutions @ [("{{ERROR_MESSAGE}}", "<p style='color:red;'>" ^ error_msg ^ "</p>")] in
+          Renderer.server_side_render "login.html" error_substitutions >>= fun (response, body) ->
+          Cohttp_lwt.Body.to_string body >>= fun body_str ->
+          Server.respond_string ~status:`OK ~body:body_str ()
+      end
+
   | _ ->
       Server.respond_string ~status:`Method_not_allowed
-        ~body:"Method not allowed"
-        ()
+        ~body:"Method not allowed" ()
 
 
 |}
@@ -444,7 +473,10 @@ let handle_about _conn req _body =
       "<p><a href=\"/login\">Login</a> | <a href=\"/landing\">Landing</a></p>"
   in
 
+  let app_name = Sys.getenv "APP_NAME" in
+
   let substitutions = [
+    ("{{APP_NAME}}",app_name);
     ("{{PAGE_TITLE}}", "About Page 777");
     ("{{ABOUT_CONTENT}}", "This is the about page content. 771");
     ("{{LOGGED_IN_AS}}", logged_in_as_html);
@@ -468,6 +500,8 @@ open Lwt.Infix
 let handle_dashboard _conn req _body =
   let username = Renderer.get_username_if_user_is_logged_in req in
 
+  let app_name = Sys.getenv "APP_NAME" in
+
   match username with
   | None ->
       Server.respond_string ~status:`Forbidden
@@ -476,7 +510,10 @@ let handle_dashboard _conn req _body =
         ()
   | Some username_string ->
       let filename = "dashboard.html" in
-      let substitutions = [("{{USERNAME}}", username_string)] in
+      let substitutions = [
+        ("{{APP_NAME}}", app_name);
+        ("{{USERNAME}}", username_string)
+      ] in
       Renderer.server_side_render filename substitutions
 
 
@@ -509,7 +546,10 @@ let handle_landing _conn req _body =
       "<p><a href=\"/login\">Login</a> | <a href=\"/about\">About</a></p>"
   in
 
+  let app_name = Sys.getenv "APP_NAME" in
+
   let substitutions = [
+    ("{{APP_NAME}}", app_name);
     ("{{LOGGED_IN_AS}}", logged_in_as_html);
     ("{{LINK_BLOCK}}", link_block_html);
   ] in
