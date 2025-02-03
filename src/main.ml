@@ -17,13 +17,9 @@ let route conn req body =
   | None ->
       Server.respond_string ~status:`Not_found ~body:"Not Found" ()
 
-let () = Dotenv.export ()
 
-let getenv_with_default var default =
-  try Sys.getenv var with Not_found -> default
-
-let app_name = getenv_with_default "APP_NAME" "My App"
-let port = int_of_string (getenv_with_default "PORT" "8080")
+let app_name = Sys.getenv "APP_NAME"
+let port = int_of_string (Sys.getenv "PORT")
 
 (* Ensure Random is seeded once *)
 let () = Random.self_init ()

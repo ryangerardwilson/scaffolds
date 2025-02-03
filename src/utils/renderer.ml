@@ -21,6 +21,17 @@ open Lwt.Infix
 *)
 let session_store : (string, string) Hashtbl.t = Hashtbl.create 16
 
+(*
+    This line of code exports the env file in memory
+*)
+let () = Dotenv.export ()
+
+let get_env var =
+  try
+    Sys.getenv var
+  with
+  | Not_found -> "None"
+
 (* Generates a random session_id, then associates it with the given username. *)
 let create_session ~(username : string) : string =
   let rand_bytes = Bytes.create 16 in
@@ -103,14 +114,11 @@ let handle_auth body_str =
       let session_id = create_session ~username in
       let headers = Header.add (Header.init ()) "Set-Cookie"
           ("sessionid=" ^ session_id ^ "; Path=/") in
-      Server.respond_redirect ~headers ~uri:(Uri.of_string "/dashboard") ()
+      Ok (headers, Uri.of_string "/dashboard")
   | None ->
-      let body = "<h2>Login Failed</h2><p>Invalid credentials.</p>\
-                  <p><a href=\"/login\">Try again</a></p>" in
-      Server.respond_string ~status:`OK ~body ()
+      Error "Invalid credentials. Please try again."
 
-(* Determine if a user is logged in by checking the session *)
-(* Determine if a user is logged in by checking the session *)
+
 (* Determine if a user is logged in by checking the session *)
 let get_username_if_user_is_logged_in req =
   (* Function to extract session ID from cookie string; returns a string option *)

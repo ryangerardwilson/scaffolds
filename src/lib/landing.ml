@@ -24,7 +24,10 @@ let handle_landing _conn req _body =
       "<p><a href=\"/login\">Login</a> | <a href=\"/about\">About</a></p>"
   in
 
+  let app_name = Sys.getenv "APP_NAME" in
+
   let substitutions = [
+    ("{{APP_NAME}}", app_name);
     ("{{LOGGED_IN_AS}}", logged_in_as_html);
     ("{{LINK_BLOCK}}", link_block_html);
   ] in

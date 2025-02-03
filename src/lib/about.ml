@@ -21,7 +21,10 @@ let handle_about _conn req _body =
       "<p><a href=\"/login\">Login</a> | <a href=\"/landing\">Landing</a></p>"
   in
 
+  let app_name = Sys.getenv "APP_NAME" in
+
   let substitutions = [
+    ("{{APP_NAME}}",app_name);
     ("{{PAGE_TITLE}}", "About Page 777");
     ("{{ABOUT_CONTENT}}", "This is the about page content. 771");
     ("{{LOGGED_IN_AS}}", logged_in_as_html);
