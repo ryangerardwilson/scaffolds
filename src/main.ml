@@ -4,7 +4,6 @@ open Cohttp_lwt_unix
 
 let routes = [
   ("/", Landing.handle_landing);
-  ("/home", Home.handle_root);
   ("/about", About.handle_about);
   ("/login", Login.handle_login);
   ("/logout", Logout.handle_logout);

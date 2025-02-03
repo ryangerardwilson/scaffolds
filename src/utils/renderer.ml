@@ -59,7 +59,7 @@ let destroy_session (req : Cohttp.Request.t) : unit =
       | None -> ()
 
 
-
+(* Logs the user in *)
 let handle_auth body_str =
   (* Local function to create a session. *)
   let create_session ~(username : string) : string =
@@ -109,8 +109,38 @@ let handle_auth body_str =
                   <p><a href=\"/login\">Try again</a></p>" in
       Server.respond_string ~status:`OK ~body ()
 
+(* Determine if a user is logged in by checking the session *)
+(* Determine if a user is logged in by checking the session *)
+(* Determine if a user is logged in by checking the session *)
+let get_username_if_user_is_logged_in req =
+  (* Function to extract session ID from cookie string; returns a string option *)
+  let get_session_id_from_cookie cookie_str =
+    let parts = String.split_on_char ';' cookie_str in
+    let find_sessionid kv =
+      let kv = String.trim kv in
+      if String.length kv >= 10 && String.sub kv 0 10 = "sessionid="
+      then Some (String.sub kv 10 (String.length kv - 10))
+      else None
+    in
+    List.fold_left
+      (fun acc item -> match acc with None -> find_sessionid item | Some _ -> acc)
+      None
+      parts
+  in
 
+  (* Function to retrieve a username associated with a session ID; returns a string option *)
+  let get_username_for_session session_id =
+    Hashtbl.find_opt session_store session_id
+  in
 
+  let cookie_header = Cohttp.Header.get (Request.headers req) "cookie" in
+  match cookie_header with
+  | None -> None
+  | Some cookie_str ->
+      (* Instead of Option.bind, just manually match on the option. *)
+      match get_session_id_from_cookie cookie_str with
+      | None -> None
+      | Some session_id -> get_username_for_session session_id
 
 
 (*

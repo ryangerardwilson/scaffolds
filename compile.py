@@ -183,9 +183,14 @@ def step1_preprocessing():
 # # Although, we can use 'ocamlc -c file_name.ml', when we specify paths in our command we need to use 'ocamlc -c -I lib lib/file_name.ml'
 # ocamlc -c -I lib lib/templates_lib.ml
 # ocamlc -c -I lib lib/scaffolder_lib.ml
+# Include the unix directory in the search path
+# ocamlc -c -I lib -I +unix lib/templates_lib.ml
+# ocamlc -c -I lib -I +unix lib/scaffolder_lib.ml
+
+
 
 # # Step II - Link modules to main in order of dependencies
-# ocamlc -I lib -o scaffolds unix.cma lib/templates_lib.cmo lib/scaffolder_lib.cmo main.ml
+# ocamlc -I lib -I +unix -o scaffolds unix.cma lib/templates_lib.cmo lib/scaffolder_lib.cmo main.ml
 
 # # Step III - Remove all .cmo, .cmi, .out files from the pwd and all sub-directories
 # find . -type f \( -name "*.cmo" -o -name "*.cmi" -o -name "*.out" \) -exec rm -f {} +
@@ -209,24 +214,26 @@ def step2_compile():
     Step II: Compile modules in order of dependencies.
     """
     print("[INFO] Step II - Compiling modules...")
-    subprocess.run(["ocamlc", "-c", "-I", "lib", "lib/templates_lib.ml"], check=True)
-    subprocess.run(["ocamlc", "-c", "-I", "lib", "lib/scaffolder_lib.ml"], check=True)
+    subprocess.run(["ocamlc", "-c", "-I", "lib", "-I", "+unix", "lib/templates_lib.ml"], check=True)
+    subprocess.run(["ocamlc", "-c", "-I", "lib", "-I", "+unix", "lib/scaffolder_lib.ml"], check=True)
 
 def step3_link():
     """
     Step III: Link modules to main in order of dependencies
     """
     print("[INFO] Step III - Linking modules...")
-    # ocamlc -I lib -o scaffolds unix.cma lib/templates_lib.cmo lib/scaffolder_lib.cmo main.ml
+    # Updated command with -I +unix
     subprocess.run([
-        "ocamlc", 
+        "ocamlc",
         "-I", "lib",
+        "-I", "+unix",
         "-o", "scaffolds",
         "unix.cma",
         "lib/templates_lib.cmo",
         "lib/scaffolder_lib.cmo",
         "main.ml"
     ], check=True)
+
 
 def step4_cleanup():
     """
