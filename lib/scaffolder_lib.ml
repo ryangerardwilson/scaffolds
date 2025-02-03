@@ -39,9 +39,6 @@ let scaffold target_dir =
   write_file (full_path "resources/about.html") Templates_lib.dir_resources_file_about_ext_html;
 
   ensure_full_path (full_path "resources");
-  write_file (full_path "resources/home.html") Templates_lib.dir_resources_file_home_ext_html;
-
-  ensure_full_path (full_path "resources");
   write_file (full_path "resources/login.html") Templates_lib.dir_resources_file_login_ext_html;
 
   ensure_full_path (full_path "resources");
@@ -51,9 +48,6 @@ let scaffold target_dir =
   write_file (full_path "resources/dashboard.html") Templates_lib.dir_resources_file_dashboard_ext_html;
 
   ensure_full_path (full_path "lib");
-  write_file (full_path "lib/home.ml") Templates_lib.dir_lib_file_home_ext_ml;
-
-  ensure_full_path (full_path "lib");
   write_file (full_path "lib/login.ml") Templates_lib.dir_lib_file_login_ext_ml;
 
   ensure_full_path (full_path "lib");
@@ -61,9 +55,6 @@ let scaffold target_dir =
 
   ensure_full_path (full_path "lib");
   write_file (full_path "lib/about.ml") Templates_lib.dir_lib_file_about_ext_ml;
-
-  ensure_full_path (full_path "lib");
-  write_file (full_path "lib/session.ml") Templates_lib.dir_lib_file_session_ext_ml;
 
   ensure_full_path (full_path "lib");
   write_file (full_path "lib/dashboard.ml") Templates_lib.dir_lib_file_dashboard_ext_ml;

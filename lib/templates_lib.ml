@@ -7,7 +7,6 @@ open Cohttp_lwt_unix
 
 let routes = [
   ("/", Landing.handle_landing);
-  ("/home", Home.handle_root);
   ("/about", About.handle_about);
   ("/login", Login.handle_login);
   ("/logout", Logout.handle_logout);
@@ -48,7 +47,6 @@ PORT=8080
 |}
 
 let file_compile_ext_sh = {|
-
 #!/bin/bash
 
 # Step 1: Compile modules
@@ -56,13 +54,7 @@ ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
   -I utils -I lib utils/renderer.ml
 
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/session.ml
-
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
   -I utils -I lib lib/landing.ml
-
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/home.ml
 
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
   -I utils -I lib lib/about.ml
@@ -83,9 +75,7 @@ ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
 ocamlfind ocamlc -thread -package cohttp-lwt-unix,dotenv,str,base64 -linkpkg \
   -o app \
   utils/renderer.cmo \
-  lib/session.cmo \
   lib/landing.cmo \
-  lib/home.cmo \
   lib/about.cmo \
   lib/login.cmo \
   lib/logout.cmo \
@@ -101,6 +91,7 @@ echo "Use the --and_run flag to compile and run the app automatically."
 if [[ "$1" == "--and_run" ]]; then
   ./app
 fi
+
 
 |}
 
@@ -166,7 +157,7 @@ let destroy_session (req : Cohttp.Request.t) : unit =
       | None -> ()
 
 
-
+(* Logs the user in *)
 let handle_auth body_str =
   (* Local function to create a session. *)
   let create_session ~(username : string) : string =
@@ -216,8 +207,38 @@ let handle_auth body_str =
                   <p><a href=\"/login\">Try again</a></p>" in
       Server.respond_string ~status:`OK ~body ()
 
+(* Determine if a user is logged in by checking the session *)
+(* Determine if a user is logged in by checking the session *)
+(* Determine if a user is logged in by checking the session *)
+let get_username_if_user_is_logged_in req =
+  (* Function to extract session ID from cookie string; returns a string option *)
+  let get_session_id_from_cookie cookie_str =
+    let parts = String.split_on_char ';' cookie_str in
+    let find_sessionid kv =
+      let kv = String.trim kv in
+      if String.length kv >= 10 && String.sub kv 0 10 = "sessionid="
+      then Some (String.sub kv 10 (String.length kv - 10))
+      else None
+    in
+    List.fold_left
+      (fun acc item -> match acc with None -> find_sessionid item | Some _ -> acc)
+      None
+      parts
+  in
 
+  (* Function to retrieve a username associated with a session ID; returns a string option *)
+  let get_username_for_session session_id =
+    Hashtbl.find_opt session_store session_id
+  in
 
+  let cookie_header = Cohttp.Header.get (Request.headers req) "cookie" in
+  match cookie_header with
+  | None -> None
+  | Some cookie_str ->
+      (* Instead of Option.bind, just manually match on the option. *)
+      match get_session_id_from_cookie cookie_str with
+      | None -> None
+      | Some session_id -> get_username_for_session session_id
 
 
 (*
@@ -284,30 +305,23 @@ let server_side_render (filename : string)
 |}
 
 let dir_resources_file_about_ext_html = {|
-
 <html>
   <head>
     <title>{{PAGE_TITLE}}</title>
   </head>
   <body>
-    <h2>About</h2>
-    <p>{{ABOUT_CONTENT}}</p>
+    <h2>About Page</h1>
+    
+    <!-- We'll inject either "logged in as..." or nothing here: -->
+    <div>{{LOGGED_IN_AS}}</div>
+
+    <!-- We'll also inject the link block (login or dashboard/logout) here: -->
+    <div>{{LINK_BLOCK}}</div>
+
+    <div>{{ABOUT_CONTENT}}</div>
   </body>
 </html>
 
-|}
-
-let dir_resources_file_home_ext_html = {|
-
-<html>
-  <head>
-    <title>Home Page</title>
-  </head>
-  <body>
-    <h1>{{CUSTOM_VAR}}</h1>
-    <p>{{ANOTHER_VAR}}</p>
-  </body>
-</html>
 
 |}
 
@@ -370,23 +384,6 @@ let dir_resources_file_dashboard_ext_html = {|
 
 |}
 
-let dir_lib_file_home_ext_ml = {|
-
-open Cohttp
-open Cohttp_lwt_unix
-open Lwt.Infix
-
-let handle_root _conn _req _body =
-  (* Define which file (in dist/) to serve and what substitutions to apply *)
-  let filename = "home.html" in
-  let substitutions = [
-    ("{{CUSTOM_VAR}}", "Custom Value 111");
-    ("{{ANOTHER_VAR}}", "Another Value 222 ");
-  ] in
-  Renderer.server_side_render filename substitutions
-
-|}
-
 let dir_lib_file_login_ext_ml = {|
 open Cohttp
 open Cohttp_lwt_unix
@@ -424,49 +421,38 @@ let handle_logout _conn req _body =
 |}
 
 let dir_lib_file_about_ext_ml = {|
-
 open Cohttp
 open Cohttp_lwt_unix
 open Lwt.Infix
 
-let handle_about (_conn : Cohttp_lwt_unix.Server.conn) (_req : Cohttp.Request.t) (_body : Cohttp_lwt.Body.t) =
-  let filename = "about.html" in
+
+(* Handle landing page requests *)
+let handle_about _conn req _body =
+  let username = Renderer.get_username_if_user_is_logged_in req in
+
+  let logged_in_as_html =
+    match username with
+    | Some username_string -> Printf.sprintf "Logged in as %s" username_string
+    | None -> ""
+  in
+
+  let link_block_html =
+    match username with
+    | Some _ ->
+      "<p><a href=\"/dashboard\">Go to Dashboard</a> | <a href=\"/logout\">Logout</a></p>"
+    | None ->
+      "<p><a href=\"/login\">Login</a> | <a href=\"/landing\">Landing</a></p>"
+  in
+
   let substitutions = [
     ("{{PAGE_TITLE}}", "About Page 777");
     ("{{ABOUT_CONTENT}}", "This is the about page content. 771");
+    ("{{LOGGED_IN_AS}}", logged_in_as_html);
+    ("{{LINK_BLOCK}}", link_block_html);
   ] in
-  Renderer.server_side_render filename substitutions
 
-|}
+  Renderer.server_side_render "about.html" substitutions
 
-let dir_lib_file_session_ext_ml = {|
- 
-(* File: lib/Session.ml *)
-
-open Base64  (* or “open B64” if your library uses that module name *)
-
-(* Force session_store to have type (string, string) Hashtbl.t list *)
-let session_store : (string, string) Hashtbl.t = Hashtbl.create 16
-
-let generate_session_id () =
-  (* Make sure to seed Random once (e.g., in main.ml) or call Random.self_init () here *)
-  let rand_bytes = Bytes.create 16 in
-  for i = 0 to 15 do
-    Bytes.set rand_bytes i (char_of_int (Random.int 256))
-  done;
-  (* If your library doesn’t have encode_exn, then use encode or whichever function is provided *)
-  Base64.encode_exn (Bytes.to_string rand_bytes)
-
-let create_session ~username =
-  let session_id = generate_session_id () in
-  Hashtbl.replace session_store session_id username;
-  session_id
-
-let get_username_for_session session_id =
-  Hashtbl.find_opt session_store session_id
-
-let destroy_session session_id =
-  Hashtbl.remove session_store session_id
 
 |}
 
@@ -475,71 +461,52 @@ open Cohttp
 open Cohttp_lwt_unix
 open Lwt.Infix
 
+open Cohttp
+open Cohttp_lwt_unix
+open Lwt.Infix
+
 let handle_dashboard _conn req _body =
-  match Renderer.handle_cookie req with
+  let username = Renderer.get_username_if_user_is_logged_in req in
+
+  match username with
   | None ->
       Server.respond_string ~status:`Forbidden
-        ~body:"No valid session cookie or session expired. \
+        ~body:"No valid session or not logged in. \
                Please <a href=\"/login\">log in</a>."
         ()
-  | Some username ->
+  | Some username_string ->
       let filename = "dashboard.html" in
-      let substitutions = [("{{USERNAME}}", username)] in
+      let substitutions = [("{{USERNAME}}", username_string)] in
       Renderer.server_side_render filename substitutions
 
 
 |}
 
 let dir_lib_file_landing_ext_ml = {|
-
 (* lib/Landing.ml *)
 
 open Cohttp
 open Cohttp_lwt_unix
 open Lwt.Infix
+open Base64  (* Assume Base64 is used for encoding *)
 
-open Session  (* so that we can call get_username_for_session *)
 
-let get_session_id_from_cookie cookie_str =
-  let parts = String.split_on_char ';' cookie_str in
-  let find_sessionid kv =
-    let kv = String.trim kv in
-    if String.length kv >= 10 && String.sub kv 0 10 = "sessionid="
-    then Some (String.sub kv 10 (String.length kv - 10))
-    else None
-  in
-  List.fold_left
-    (fun acc item -> match acc with None -> find_sessionid item | Some _ -> acc)
-    None
-    parts
-
+(* Handle landing page requests *)
 let handle_landing _conn req _body =
-  (* Extract cookie from headers *)
-  let cookie_header = Cohttp.Header.get (Request.headers req) "cookie" in
-  (* Attempt to find a valid session for the user *)
-  let maybe_user =
-    match cookie_header with
-    | None -> None
-    | Some cookie_str ->
-        match get_session_id_from_cookie cookie_str with
-        | None -> None
-        | Some session_id -> get_username_for_session session_id
-  in
+  let username = Renderer.get_username_if_user_is_logged_in req in
 
-  (* If the user is logged in, show "Logged in as {username}" *)
   let logged_in_as_html =
-    match maybe_user with
-    | Some username -> Printf.sprintf "Logged in as %s" username
+    match username with
+    | Some username_string -> Printf.sprintf "Logged in as %s" username_string
     | None -> ""
   in
 
-  (* If logged in => "Go to Dashboard" & "Logout", else => "Login/Home/About" *)
   let link_block_html =
-    match maybe_user with
+    match username with
     | Some _ ->
-      "<p><a href=\"/dashboard\">Go to Dashboard</a> | <a href=\"/logout\">Logout</a></p>"
+      "<p><a href=\"/dashboard\">Go to Dashboard</a> | <a href=\"/about\">About</a> | <a href=\"/logout\">Logout</a></p>"
     | None ->
-      "<p><a href=\"/login\">Login</a> | <a href=\"/home\">Home</a> | <a href=\"/about\">About</a></p>"
+      "<p><a href=\"/login\">Login</a> | <a href=\"/about\">About</a></p>"
   in
 
   let substitutions = [
@@ -548,6 +515,7 @@ let handle_landing _conn req _body =
   ] in
 
   Renderer.server_side_render "landing.html" substitutions
+
 
 |}
 
