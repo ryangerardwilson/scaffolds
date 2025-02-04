@@ -91,7 +91,6 @@ def gather_files_from_src(src_dir):
             if '.db' in rel_path:
                 continue
 
-
             # Build the variable name
             var_name = build_variable_name(rel_path)
 
