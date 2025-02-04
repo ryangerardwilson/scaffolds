@@ -32,7 +32,7 @@ let scaffold target_dir =
 
   write_file (full_path ".gitignore") Templates_lib.ext_gitignore;
 
-  write_file (full_path ".tailwind_proxy_input") Templates_lib.ext_tailwind_proxy_input;
+  write_file (full_path ".tailwind_build_input") Templates_lib.ext_tailwind_build_input;
 
   write_file (full_path "compile.sh") Templates_lib.file_compile_ext_sh;
 

@@ -43,7 +43,7 @@ find . -type f \( -name "*.cmo" -o -name "*.cmi" -o -name "*.out" \) -exec rm -f
 # Step 4: Download the tailwindcss cli, and compile the assets
 TAILWIND_CSS_URL="https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64"
 TAILWIND_CSS_BINARY=".tailwindcss-linux-x64"  # Hidden file
-INPUT_FILE=".tailwind_proxy_input"
+INPUT_FILE=".tailwind_build_input"
 OUTPUT_FILE="resources/assets/styles.css"
 
 # Check if the Tailwind CSS binary already exists, download it if not
