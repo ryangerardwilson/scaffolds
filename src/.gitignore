@@ -5,5 +5,4 @@
 *.out
 *.env
 *.tailwindcss-linux-x64
-scaffolds
-test
+app

@@ -7,6 +7,7 @@ import subprocess
 # STEP I: Preprocessing – Generate lib/templates_lib.ml and lib/scaffolder_lib.ml
 ###############################################################################
 
+
 def build_variable_name(root_relative_path):
     """
     Given a path relative to 'src', build a variable name of the form:
@@ -15,18 +16,18 @@ def build_variable_name(root_relative_path):
     - If in root with pure extension (e.g., '.env'): ext_<extension_without_dot>
     """
     parts = root_relative_path.split(os.sep)
-    
+
     # If there's only one part (i.e., file directly in src/):
     #   e.g., "main.ml" -> "file_main_ext_ml"
     #   e.g., ".env"    -> "ext_env"
     # If more subdirectories exist, we build out "dir_xxx" sections for each directory
     # before final "file_xxx_ext_xxx".
-    
+
     # Remove any directories from the end that are actually the file name
     # so that 'parts[-1]' is the filename, and 'parts[:-1]' are directories.
     dirs = parts[:-1]
     filename = parts[-1]
-    
+
     # Separate the filename from extension if it exists
     if filename.startswith('.'):  # pure extension, e.g. ".env"
         # var name like: ext_env
@@ -38,10 +39,10 @@ def build_variable_name(root_relative_path):
         else:
             # File with no dots => no extension
             name, ext = filename, ""
-        
+
         if len(dirs) == 0:
             # in root of src:
-            if ext == "": 
+            if ext == "":
                 # no extension => "file_<filename>"
                 var_name = f"file_{name}"
             else:
@@ -55,8 +56,9 @@ def build_variable_name(root_relative_path):
                 var_name = "_".join(dir_chunks + [f"file_{name}"])
             else:
                 var_name = "_".join(dir_chunks + [f"file_{name}", f"ext_{ext}"])
-    
+
     return var_name
+
 
 def gather_files_from_src(src_dir):
     """
@@ -70,21 +72,31 @@ def gather_files_from_src(src_dir):
         for f in files:
             full_path = os.path.join(root, f)
             rel_path = os.path.relpath(full_path, src_dir)  # e.g., "lib/Home.ml"
-            
+
             # Check if ignoring 'src/app' with no extension in root
             # That means if rel_path == "app" AND there's no '.' in "app"
             if rel_path == "app" and '.' not in rel_path:
                 continue
-            
+
+            # print("79", rel_path)
+            # Check if ignoring 'src/.tailwindcss-linux-x64' in root
+            if '.tailwindcss-linux-x64' in rel_path:
+                continue
+
+            # Check if ignoring 'src/resources/assets/styles.css' in root
+            if 'src/resources/assets/styles.css' in rel_path:
+                continue
+
             # Build the variable name
             var_name = build_variable_name(rel_path)
-            
+
             # Read the file content
             with open(full_path, 'r', encoding='utf-8') as infile:
                 content = infile.read()
-            
+
             collected.append((rel_path, var_name, content))
     return collected
+
 
 def write_templates_lib(all_files):
     """
@@ -101,6 +113,7 @@ def write_templates_lib(all_files):
             # but if your files had literal {| or |}, that could conflict with the syntax.
             f.write(f"let {var_name} = {{|\n{content}\n|}}\n\n")
         print(f"[INFO] Step I - Generated {output_path}")
+
 
 def write_scaffolder_lib(all_files):
     """
@@ -158,13 +171,14 @@ def write_scaffolder_lib(all_files):
 
     print(f"[INFO] Step I - Generated {output_path}")
 
+
 def step1_preprocessing():
     print("[INFO] Step I - Preprocessing – Generating templates_lib.ml and scaffolder_lib.ml from src/ ...")
     src_dir = "src"
     if not os.path.isdir(src_dir):
         print(f"[WARNING] Step I - 'src' directory not found at {os.path.abspath(src_dir)}. Skipping generation.")
         return
-    
+
     all_files = gather_files_from_src(src_dir)
     write_templates_lib(all_files)
     write_scaffolder_lib(all_files)
@@ -188,7 +202,6 @@ def step1_preprocessing():
 # ocamlc -c -I lib -I +unix lib/scaffolder_lib.ml
 
 
-
 # # Step II - Link modules to main in order of dependencies
 # ocamlc -I lib -I +unix -o scaffolds unix.cma lib/templates_lib.cmo lib/scaffolder_lib.cmo main.ml
 
@@ -202,7 +215,7 @@ def step1_preprocessing():
 #     rm -rf test
 #     echo "Existing 'test' directory removed."
 #   fi
-# 
+#
 #   # Execute the scaffold generation
 #   ./scaffolds --scaffold test
 #   echo "Test scaffold has been generated."
@@ -216,6 +229,7 @@ def step2_compile():
     print("[INFO] Step II - Compiling modules...")
     subprocess.run(["ocamlc", "-c", "-I", "lib", "-I", "+unix", "lib/templates_lib.ml"], check=True)
     subprocess.run(["ocamlc", "-c", "-I", "lib", "-I", "+unix", "lib/scaffolder_lib.ml"], check=True)
+
 
 def step3_link():
     """
@@ -245,6 +259,7 @@ def step4_cleanup():
             if f.endswith((".cmo", ".cmi", ".out")):
                 os.remove(os.path.join(root, f))
 
+
 def step5_optional_test_scaffold(args):
     """
     Step V: Check for the --and_generate_test_scaffold flag, if present:
@@ -263,26 +278,25 @@ def step5_optional_test_scaffold(args):
         print("[INFO] All steps complete!")
         print("[INFO] Use the --and_generate_test_scaffold flag to generate the test scaffold.\n")
 
+
 def main():
-    
+
     # Step I: Preprocessing
     step1_preprocessing()
-    
+
     # Step II
     step2_compile()
-    
+
     # Step III
     step3_link()
     print("[INFO] Step III - Compilation complete.")
-    
+
     # Step IV
     step4_cleanup()
-    
+
     # Step V
     step5_optional_test_scaffold(sys.argv[1:])
 
-    
 
 if __name__ == "__main__":
     main()
-

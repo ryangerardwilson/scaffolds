@@ -30,6 +30,10 @@ let scaffold target_dir =
 
   write_file (full_path ".env") Templates_lib.ext_env;
 
+  write_file (full_path ".gitignore") Templates_lib.ext_gitignore;
+
+  write_file (full_path ".tailwind_proxy_input") Templates_lib.ext_tailwind_proxy_input;
+
   write_file (full_path "compile.sh") Templates_lib.file_compile_ext_sh;
 
   ensure_full_path (full_path "utils");
@@ -47,6 +51,9 @@ let scaffold target_dir =
   ensure_full_path (full_path "resources");
   write_file (full_path "resources/dashboard.html") Templates_lib.dir_resources_file_dashboard_ext_html;
 
+  ensure_full_path (full_path "resources/assets");
+  write_file (full_path "resources/assets/styles.css") Templates_lib.dir_resources_dir_assets_file_styles_ext_css;
+
   ensure_full_path (full_path "lib");
   write_file (full_path "lib/login.ml") Templates_lib.dir_lib_file_login_ext_ml;
 
@@ -55,6 +62,9 @@ let scaffold target_dir =
 
   ensure_full_path (full_path "lib");
   write_file (full_path "lib/about.ml") Templates_lib.dir_lib_file_about_ext_ml;
+
+  ensure_full_path (full_path "lib");
+  write_file (full_path "lib/assets.ml") Templates_lib.dir_lib_file_assets_ext_ml;
 
   ensure_full_path (full_path "lib");
   write_file (full_path "lib/dashboard.ml") Templates_lib.dir_lib_file_dashboard_ext_ml;

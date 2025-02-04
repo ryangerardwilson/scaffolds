@@ -18,7 +18,7 @@ let handle_about _conn req _body =
     | Some _ ->
       "<p><a href=\"/dashboard\">Go to Dashboard</a> | <a href=\"/logout\">Logout</a></p>"
     | None ->
-      "<p><a href=\"/login\">Login</a> | <a href=\"/landing\">Landing</a></p>"
+      "<p><a href=\"/login\">Login</a> | <a href=\"/\">Landing</a></p>"
   in
 
   let app_name = Sys.getenv "APP_NAME" in
