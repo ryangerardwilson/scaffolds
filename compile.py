@@ -87,6 +87,11 @@ def gather_files_from_src(src_dir):
             if 'src/resources/assets/styles.css' in rel_path:
                 continue
 
+            # Check if ignoring '.db'
+            if '.db' in rel_path:
+                continue
+
+
             # Build the variable name
             var_name = build_variable_name(rel_path)
 

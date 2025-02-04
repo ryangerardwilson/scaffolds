@@ -36,6 +36,12 @@ let scaffold target_dir =
 
   write_file (full_path "compile.sh") Templates_lib.file_compile_ext_sh;
 
+  ensure_full_path (full_path "dbs/auth");
+  write_file (full_path "dbs/auth/schema.sql") Templates_lib.dir_dbs_dir_auth_file_schema_ext_sql;
+
+  ensure_full_path (full_path "utils");
+  write_file (full_path "utils/migrations.ml") Templates_lib.dir_utils_file_migrations_ext_ml;
+
   ensure_full_path (full_path "utils");
   write_file (full_path "utils/renderer.ml") Templates_lib.dir_utils_file_renderer_ext_ml;
 
