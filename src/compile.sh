@@ -4,6 +4,9 @@
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
   -I utils -I lib utils/renderer.ml
 
+ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
+  -I utils -I lib utils/migrations.ml
+
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
   -I utils -I lib lib/landing.ml
 
@@ -26,9 +29,10 @@ ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
   -I utils -I lib main.ml
 
 # Step 2: Link modules
-ocamlfind ocamlc -thread -package cohttp-lwt-unix,dotenv,str,base64 -linkpkg \
+ocamlfind ocamlc -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 -linkpkg \
   -o app \
   utils/renderer.cmo \
+  utils/migrations.cmo \
   lib/landing.cmo \
   lib/about.cmo \
   lib/login.cmo \

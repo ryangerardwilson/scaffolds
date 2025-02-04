@@ -4,6 +4,7 @@
 *.o
 *.out
 *.env
+*.dbs
 *.tailwindcss-linux-x64
 scaffolds
 test

@@ -21,10 +21,6 @@ open Lwt.Infix
 *)
 let session_store : (string, string) Hashtbl.t = Hashtbl.create 16
 
-(*
-    This line of code exports the env file in memory
-*)
-let () = Dotenv.export ()
 
 let get_env var =
   try
@@ -33,6 +29,7 @@ let get_env var =
   | Not_found -> "None"
 
 (* Generates a random session_id, then associates it with the given username. *)
+(*
 let create_session ~(username : string) : string =
   let rand_bytes = Bytes.create 16 in
   for i = 0 to 15 do
@@ -41,9 +38,10 @@ let create_session ~(username : string) : string =
   let session_id = Base64.encode_exn (Bytes.to_string rand_bytes) in
   Hashtbl.replace session_store session_id username;
   session_id
+*)
 
 (* Removes an existing session from the store by session ID in the request. *)
-let destroy_session (req : Cohttp.Request.t) : unit =
+let handle_session_destruction (req : Cohttp.Request.t) : unit =
   let extract_session_id (cookie_str : string) : string option =
     let parts = String.split_on_char ';' cookie_str in
     let find_sessionid kv =

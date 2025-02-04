@@ -4,5 +4,6 @@
 *.o
 *.out
 *.env
+*.dbs
 *.tailwindcss-linux-x64
 app
