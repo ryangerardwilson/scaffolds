@@ -75,7 +75,7 @@ let initiate_migrations () : bool Lwt.t =
     let statements = Str.split (Str.regexp ";") schema_sql in
 
     let total_statements = List.length statements - 1 in
-    Printf.printf "[DEBUG] apply_schema: Found %d statements.\n%!" total_statements;
+    Printf.printf "[INFO] apply_schema: Found %d statements.\n%!" total_statements;
 
     (* A regex to detect CREATE TABLE statements and capture the table name. *)
     let re_create_table =
@@ -90,7 +90,7 @@ let initiate_migrations () : bool Lwt.t =
       (* Skip empty statements (like trailing semicolons). *)
       if trimmed <> "" then begin
         Printf.printf
-          "[DEBUG] Applying statement %d/%d:\n%s\n%!"
+          "[INFO] Applying statement %d/%d:\n%s\n%!"
           (i + 1) total_statements
           trimmed;
 
@@ -104,7 +104,7 @@ let initiate_migrations () : bool Lwt.t =
         match Sqlite3.exec db trimmed with
         | Sqlite3.Rc.OK ->
             Printf.printf
-              "[DEBUG] Statement %d/%d executed successfully.\n%!"
+              "[INFO] SQL Schmea statements executed successfully: %d/%d\n%!"
               (i + 1) total_statements
         | err ->
             (* Print full debugging information. *)

@@ -70,35 +70,42 @@ def gather_files_from_src(src_dir):
     for root, dirs, files in os.walk(src_dir):
         # For each file, figure out its relative path to src/
         for f in files:
-            full_path = os.path.join(root, f)
-            rel_path = os.path.relpath(full_path, src_dir)  # e.g., "lib/Home.ml"
+            try:
+                full_path = os.path.join(root, f)
+                rel_path = os.path.relpath(full_path, src_dir)  # e.g., "lib/Home.ml"
 
-            # Check if ignoring 'src/app' with no extension in root
-            # That means if rel_path == "app" AND there's no '.' in "app"
-            if rel_path == "app" and '.' not in rel_path:
-                continue
+                # Check if ignoring 'src/app' with no extension in root
+                # That means if rel_path == "app" AND there's no '.' in "app"
+                if rel_path == "app" and '.' not in rel_path:
+                    continue
 
-            # print("79", rel_path)
-            # Check if ignoring 'src/.tailwindcss-linux-x64' in root
-            if '.tailwindcss-linux-x64' in rel_path:
-                continue
+                # print("79", rel_path)
+                # Check if ignoring 'src/.tailwindcss-linux-x64' in root
+                if '.tailwindcss-linux-x64' in rel_path:
+                    continue
 
-            # Check if ignoring 'src/resources/assets/styles.css' in root
-            if 'src/resources/assets/styles.css' in rel_path:
-                continue
+                # Check if ignoring 'src/resources/assets/styles.css' in root
+                if 'src/resources/assets/styles.css' in rel_path:
+                    continue
 
-            # Check if ignoring '.db'
-            if '.db' in rel_path:
-                continue
+                # Check if ignoring '.db'
+                if '.db' in rel_path:
+                    continue
 
-            # Build the variable name
-            var_name = build_variable_name(rel_path)
+                if '.swp' in rel_path:
+                    continue
 
-            # Read the file content
-            with open(full_path, 'r', encoding='utf-8') as infile:
-                content = infile.read()
+                # Build the variable name
+                var_name = build_variable_name(rel_path)
 
-            collected.append((rel_path, var_name, content))
+                # Read the file content
+                with open(full_path, 'r', encoding='utf-8') as infile:
+                    content = infile.read()
+
+                collected.append((rel_path, var_name, content))
+            except Exception as e:
+                full_path = os.path.join(root, f)
+                print(e, full_path)
     return collected
 
 

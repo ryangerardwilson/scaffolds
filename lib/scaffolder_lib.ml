@@ -43,7 +43,13 @@ let scaffold target_dir =
   write_file (full_path "utils/migrations.ml") Templates_lib.dir_utils_file_migrations_ext_ml;
 
   ensure_full_path (full_path "utils");
+  write_file (full_path "utils/debugger.ml") Templates_lib.dir_utils_file_debugger_ext_ml;
+
+  ensure_full_path (full_path "utils");
   write_file (full_path "utils/renderer.ml") Templates_lib.dir_utils_file_renderer_ext_ml;
+
+  ensure_full_path (full_path "resources");
+  write_file (full_path "resources/debugger.html") Templates_lib.dir_resources_file_debugger_ext_html;
 
   ensure_full_path (full_path "resources");
   write_file (full_path "resources/about.html") Templates_lib.dir_resources_file_about_ext_html;

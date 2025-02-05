@@ -131,58 +131,14 @@ let dump_and_die (values : Obj.t list) =
   let json_list = `List json_items in
   (* Generate a JSON string from the list *)
   let json_string = Yojson.Basic.to_string json_list in
-  
-  (* Generate HTML content with embedded JSON and JavaScript *)
-  let html_content = Printf.sprintf {|
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JSON Viewer</title>
-    <style>
-        body {
-            font-family: 'Courier New', Courier, monospace;
-            background-color: #000;
-            color: #fff;
-            margin: 20px;
-        }
-        .json-box {
-            background-color: #1e1e1e;
-            color: #dcdcdc;
-            padding: 10px;
-            border-radius: 5px;
-            margin-bottom: 10px;
-            overflow: auto;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-    </style>
-</head>
-<body>
-    <div id="json-container"></div>
-    <script>
-        // Example JSON data (Array of objects)
-        const jsonData = %s;
-
-        // Get the container element
-        const jsonContainer = document.getElementById("json-container");
-
-        // Loop through each JSON item and create a <pre> element
-        jsonData.forEach(item => {
-            const jsonBox = document.createElement('pre');
-            jsonBox.className = 'json-box';
-            jsonBox.textContent = JSON.stringify(item, null, 2);
-            jsonContainer.appendChild(jsonBox);
-        });
-    </script>
-</body>
-</html>
-  |} json_string in
-
-  (* Raise exception with the HTML content *)
-  Lwt.fail (DumpAndDie html_content)
 
 
+  Renderer.server_side_render
+    "debugger.html"  (* the file you placed in PUBLIC_DIR *)
+    [ ("{{DATA_TO_DEBUG}}", json_string) ]
+  >>= fun (_response, body) ->
+    (* Convert Cohttp body to string *)
+    Cohttp_lwt.Body.to_string body >>= fun final_html ->
+    Lwt.fail (DumpAndDie final_html)
 
 
