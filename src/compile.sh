@@ -7,6 +7,9 @@ ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
   -I utils -I lib utils/migrations.ml
 
+ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64,yojson \
+  -I utils -I lib utils/debugger.ml
+
 ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
   -I utils -I lib lib/landing.ml
 
@@ -29,10 +32,11 @@ ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
   -I utils -I lib main.ml
 
 # Step 2: Link modules
-ocamlfind ocamlc -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 -linkpkg \
+ocamlfind ocamlc -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3,yojson -linkpkg \
   -o app \
   utils/renderer.cmo \
   utils/migrations.cmo \
+  utils/debugger.cmo \
   lib/landing.cmo \
   lib/about.cmo \
   lib/login.cmo \
@@ -60,11 +64,10 @@ fi
 ./"$TAILWIND_CSS_BINARY" -i "$INPUT_FILE" -o "$OUTPUT_FILE" --minify
 
 
-
-echo "[INFO] Use the --and_run flag to compile and run the app automatically."
-
 # Step 4: Optionally run
 if [[ "$1" == "--and_run" ]]; then
   ./app
+else
+  echo "[INFO] Use the --and_run flag to compile and run the app automatically."
 fi
 
