@@ -13,22 +13,28 @@ Before you can run this application, ensure you have the following installed:
 
 ## 3. Setup
 
-### 3.1. Clone the Repository:
+### 3.1. Installation
 
-   git clone https://github.com/ryangerardwilson/scaffolds
-   cd scaffolds
+    curl -fsSL https://files.ryangerardwilson.com/scaffolds/debian/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/scaffolds.gpg; sudo echo "deb [arch=amd64 signed-by=/usr/share/keyrings/scaffolds.gpg] https://files.ryangerardwilson.com/scaffolds/debian stable main" | sudo tee /etc/apt/sources.list.d/scaffolds.list; sudo apt update; sudo apt-get install scaffolds
 
-### 3.2. Compile the Application:
+   curl -fsSL https://files.ryangerardwilson.com/scaffolds/debian/pubkey.gpg \
+       | sudo gpg --dearmor -o /usr/share/keyrings/scaffolds.gpg
+   echo "deb [arch=amd64 signed-by=/usr/share/keyrings/scaffolds.gpg] https://files.ryangerardwilson.com/scaffolds/debian stable main" \
+       | sudo tee /etc/apt/sources.list.d/scaffolds.list
+   sudo apt update
+   sudo apt-get install scaffolds
 
-Navigate to where your `main.ml` file is located and run the OCaml compiler:
 
-    python compile.py
+### 3.2. Subsequent Updates
+
+    sudo apt update
+    sudo apt upgrade
 
 ## 4. Usage
 
 To run the application, execute it with the `--scaffold` flag followed by the directory path you want to scaffold:
 
-    ./scaffolds --scaffold <target_directory>
+    scaffolds --scaffold <target_directory>
 
 Make sure to replace `<target_directory>` with the actual path where you want scaffolding operations to be executed.
 

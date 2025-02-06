@@ -288,7 +288,7 @@ let initiate_migrations () : bool Lwt.t =
         match Sqlite3.exec db trimmed with
         | Sqlite3.Rc.OK ->
             Printf.printf
-              "[INFO] Statement %d/%d executed successfully.\n%!"
+              "[INFO] SQL Schmea statements executed successfully: %d/%d\n%!"
               (i + 1) total_statements
         | err ->
             (* Print full debugging information. *)
@@ -772,33 +772,32 @@ let server_side_render (filename : string)
 |}
 
 let dir_resources_file_debugger_ext_html = {|
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-   <meta charset="UTF-8">
-   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-   <title>Debugger</title>
-   <link rel="stylesheet" href="/assets/styles.css">
-</head>
-<body class="bg-black text-white font-mono text-xs m-5">
-  <div id="json-container"></div>
-  <script>
-    // Our placeholder:
-    const jsonData = {{DATA_TO_DEBUG}};
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Debugger</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body class="bg-black text-white font-mono text-xs m-5">
+    <div id="json-container"></div>
+    <script>
+      // Our placeholder:
+      const jsonData = {{DATA_TO_DEBUG}};
 
-    const jsonContainer = document.getElementById("json-container");
+      const jsonContainer = document.getElementById("json-container");
 
-    // Loop through each JSON item and display it
-    jsonData.forEach(item => {
-      const jsonBox = document.createElement('pre');
-      jsonBox.className = 'bg-[#1e1e1e] text-[#dcdcdc] p-[10px] mb-[10px] rounded-[5px] overflow-auto whitespace-pre-wrap break-words';
-      jsonBox.textContent = JSON.stringify(item, null, 2);
-      jsonContainer.appendChild(jsonBox);
-    });
-  </script>
-</body>
+      // Loop through each JSON item and display it
+      jsonData.forEach(item => {
+        const jsonBox = document.createElement('pre');
+        jsonBox.className = 'bg-[#1e1e1e] text-[#dcdcdc] p-[10px] mb-[10px] rounded-[5px] overflow-auto whitespace-pre-wrap break-words';
+        jsonBox.textContent = JSON.stringify(item, null, 2);
+        jsonContainer.appendChild(jsonBox);
+      });
+    </script>
+  </body>
 </html>
-
 
 |}
 
@@ -806,15 +805,13 @@ let dir_resources_file_about_ext_html = {|
 <html>
   <head>
     <title>{{APP_NAME}}/ {{PAGE_TITLE}}</title>
-    <link rel="stylesheet" href="/assets/styles.css">
+    <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
     <h2 class="mt-24 bg-gray-900">About Page</h2>
 
-  <h1 class="text-3xl font-bold underline">
-    Hello world!
-  </h1>
-    
+    <h1 class="text-3xl font-bold underline">Hello world!</h1>
+
     <!-- We'll inject either "logged in as..." or nothing here: -->
     <div>{{LOGGED_IN_AS}}</div>
 
@@ -824,7 +821,6 @@ let dir_resources_file_about_ext_html = {|
     <div>{{ABOUT_CONTENT}}</div>
   </body>
 </html>
-
 
 |}
 
@@ -837,29 +833,29 @@ let dir_resources_file_login_ext_html = {|
     <h2>Login</h2>
     {{ERROR_MESSAGE}}
     <form method="POST" action="/login">
-      <label>Username:
-        <input type="text" name="username"/>
+      <label
+        >Username:
+        <input type="text" name="username" />
       </label>
-      <br/>
-      <label>Password:
-        <input type="password" name="password"/>
+      <br />
+      <label
+        >Password:
+        <input type="password" name="password" />
       </label>
-      <br/>
-      <input type="submit" value="Login"/>
+      <br />
+      <input type="submit" value="Login" />
     </form>
   </body>
 </html>
 
-
 |}
 
 let dir_resources_file_landing_ext_html = {|
-
 <!-- dist/landing.html -->
 <html>
   <head>
     <title>{{APP_NAME}}/ Landing Page</title>
-    <link rel="stylesheet" href="/assets/styles.css">
+    <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body class="bg-red-200">
     <h1>Welcome to Our Simple OCaml App</h1>
@@ -875,7 +871,6 @@ let dir_resources_file_landing_ext_html = {|
 |}
 
 let dir_resources_file_dashboard_ext_html = {|
-
 <html>
   <head>
     <title>{{APP_NAME}}/ Dashboard</title>
