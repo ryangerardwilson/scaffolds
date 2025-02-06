@@ -7,7 +7,7 @@ import json
 import re
 
 
-MAJOR_RELEASE_NUMBER=2
+MAJOR_RELEASE_NUMBER = 2
 
 ###############################################################################
 # STEP I: Preprocessing – Generate lib/templates_lib.ml and lib/scaffolder_lib.ml
@@ -369,14 +369,14 @@ def publish_release():
             )
 
         version_str = match.group(1)  # "1.0.3"
-        revision_str = match.group(2) # "1"
+        revision_str = match.group(2)  # "1"
 
         # Split the version_str into major, minor, patch
         major_str, minor_str, patch_str = version_str.split(".")
         server_major = int(major_str)    # 1
         server_minor = int(minor_str)    # 0
         server_patch = int(patch_str)    # 3
-        server_revision = int(revision_str) # 1
+        server_revision = int(revision_str)  # 1
 
         # -------------------------------------------------------------------------
         # Step 4) Compute new version based on MAJOR_RELEASE_NUMBER
@@ -410,7 +410,6 @@ def publish_release():
         new_version_str = f"{new_major}.{new_minor}.{new_patch}-{new_revision}"
 
         return new_version_str
-
 
     def build_deb(version):
         # 2) Define paths/naming
@@ -446,8 +445,6 @@ Description: An OCaml-powered web application framework with syntax so pretty, y
         print(f"[INFO] Running: {' '.join(cmd)}")
         subprocess.check_call(cmd)
         print(f"[INFO] Finished building {output_deb}")
-
-
 
     def prepare_deb_for_distribution(version):
         """
@@ -506,16 +503,11 @@ Description: An OCaml-powered web application framework with syntax so pretty, y
                 f.write(line)
         print("[INFO] Updated Filename paths in Packages file.")
 
-
-
         packages_gz_path = os.path.join(apt_binary_dir, "Packages.gz")
         print("[INFO] Compressing Packages to Packages.gz...")
         with open(packages_gz_path, "wb") as f_out:
             subprocess.check_call(["gzip", "-9c", "Packages"], cwd=apt_binary_dir, stdout=f_out)
         print(f"[INFO] Created {packages_gz_path}")
-
-
-
 
         # 6) Generate a proper Release file with apt-ftparchive in debian/dists/stable
         os.makedirs(stable_dir, exist_ok=True)
@@ -553,7 +545,6 @@ Components "main";
         print("[INFO] Release file signed (Release.gpg created).")
 
         print("[INFO] prepare_deb_for_distribution completed successfully.")
-
 
     def push_to_server():
         """
@@ -598,7 +589,6 @@ Components "main";
         subprocess.check_call(rsync_cmd, shell=True)
         print("[INFO] push_to_server completed successfully.")
 
-
     version = get_new_version_number(MAJOR_RELEASE_NUMBER)
     build_deb(version)
     prepare_deb_for_distribution(version)
@@ -615,7 +605,6 @@ def step6_optional_publish_release(args):
         print("[INFO] Step VI Completed!")
     else:
         print("[INFO] Use the --publish_release flag to publish the latest release.")
-
 
 
 ################################################################################
@@ -643,6 +632,7 @@ def main():
     # Step VI
     step6_optional_publish_release(sys.argv[1:])
     print()
+
 
 if __name__ == "__main__":
     main()
