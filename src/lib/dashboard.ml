@@ -27,7 +27,9 @@ let handle_dashboard _conn req _body =
         ("{{APP_NAME}}", app_name);
         ("{{USERNAME}}", username_string)
       ] in
+      (*
       dump_and_die [any filename; any substitutions]
       >>= fun _ ->
+      *)
       Renderer.server_side_render filename substitutions
 

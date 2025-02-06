@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Step 1: Compile modules (native code)
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
     -I utils -I lib utils/renderer.ml
 
 ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
