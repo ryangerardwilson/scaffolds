@@ -1,6 +1,6 @@
 # Scaffolds
 
-This tool is designed to perform scaffolding operations via the command line. Below you will find instructions on how to use this application effectively.
+An OCaml-powered web application framework with syntax so pretty, you'd want to marry it!
 
 ## 1. Features
 
@@ -8,19 +8,28 @@ This tool is designed to perform scaffolding operations via the command line. Be
 
 ## 2. Prerequisites
 
-Before you can run this application, ensure you have the following installed:
-- OCaml (and `ocamlc`, the OCaml compiler)
+    # OS - This framework will always only be maintained for the most recent Ubuntu LTS
+    Ubuntu 24.04.1 LTS
+
+    # OCaml Version - This framework will always only be maintained for the most recent Ocaml Versions
+    5.3.0
+
+    # Opam
+    sudo apt-get update; sudo apt-get install opam; opam init
+    # Open a new terminal to re-initialize the shell
+    eval $(opam env)
+    
+    # Ocamlfind & Other Dependencies
+    opam install ocamlfind cohttp-lwt-unix dotenv sqlite3 yojson
 
 ## 3. Setup
 
 ### 3.1. Installation
 
-   curl -fsSL https://files.ryangerardwilson.com/scaffolds/debian/pubkey.gpg \
-       | sudo gpg --dearmor -o /usr/share/keyrings/scaffolds.gpg
-   echo "deb [arch=amd64 signed-by=/usr/share/keyrings/scaffolds.gpg] https://files.ryangerardwilson.com/scaffolds/debian stable main" \
-       | sudo tee /etc/apt/sources.list.d/scaffolds.list
-   sudo apt update
-   sudo apt-get install scaffolds
+    curl -fsSL https://files.ryangerardwilson.com/scaffolds/debian/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/scaffolds.gpg
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/scaffolds.gpg] https://files.ryangerardwilson.com/scaffolds/debian stable main" | sudo tee /etc/apt/sources.list.d/scaffolds.list
+    sudo apt update
+    sudo apt-get install scaffolds
 
 ### 3.2. Subsequent Updates
 

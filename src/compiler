@@ -1,52 +1,55 @@
 #!/bin/bash
 
-# Step 1: Compile modules
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib utils/renderer.ml
+# Step 1: Compile modules (native code)
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
+    -I utils -I lib utils/renderer.ml
 
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
-  -I utils -I lib utils/migrations.ml
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
+    -I utils -I lib utils/migrations.ml
 
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64,yojson \
-  -I utils -I lib utils/debugger.ml
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,yojson \
+    -I utils -I lib utils/debugger.ml
 
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/landing.ml
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
+    -I utils -I lib lib/landing.ml
 
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/about.ml
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
+    -I utils -I lib lib/about.ml
 
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/login.ml
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
+    -I utils -I lib lib/login.ml
 
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/logout.ml
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
+    -I utils -I lib lib/logout.ml
 
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/dashboard.ml
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
+    -I utils -I lib lib/dashboard.ml
 
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib lib/assets.ml
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
+    -I utils -I lib lib/assets.ml
 
-ocamlfind ocamlc -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-  -I utils -I lib main.ml
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
+    -I utils -I lib main.ml
 
-# Step 2: Link modules
-ocamlfind ocamlc -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3,yojson -linkpkg \
-  -o app \
-  utils/renderer.cmo \
-  utils/migrations.cmo \
-  utils/debugger.cmo \
-  lib/landing.cmo \
-  lib/about.cmo \
-  lib/login.cmo \
-  lib/logout.cmo \
-  lib/dashboard.cmo \
-  lib/assets.cmo \
-  main.cmo
+# Step 2: Link modules (native code)
+ocamlfind ocamlopt -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3,yojson -linkpkg \
+    -o app \
+    utils/renderer.cmx \
+    utils/migrations.cmx \
+    utils/debugger.cmx \
+    lib/landing.cmx \
+    lib/about.cmx \
+    lib/login.cmx \
+    lib/logout.cmx \
+    lib/dashboard.cmx \
+    lib/assets.cmx \
+    main.cmx
 
 # Step 3: Clean .cmi, .cmo, .out
-find . -type f \( -name "*.cmo" -o -name "*.cmi" -o -name "*.out" \) -exec rm -f {} +
+# Step 3: Clean .cmi, .cmo, .cmx, .o, .out
+find . -type f \
+  \( -name "*.cmo" -o -name "*.cmi" -o -name "*.cmx" -o -name "*.o" -o -name "*.out" \) \
+  -exec rm -f {} +
 
 # Step 4: Download the tailwindcss cli, and compile the assets
 TAILWIND_CSS_URL="https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64"

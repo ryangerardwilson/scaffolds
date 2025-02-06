@@ -5,6 +5,7 @@ import subprocess
 import shutil
 import json
 import re
+from packaging.version import parse as parse_version
 
 
 MAJOR_RELEASE_NUMBER = 2
@@ -241,39 +242,38 @@ def step1_preprocessing():
 
 def step2_compile():
     """
-    Step II: Compile modules in order of dependencies.
+    Step II: Compile modules in order of dependencies (native code).
     """
     print("[INFO] Step II - Compiling modules...")
-    subprocess.run(["ocamlc", "-c", "-I", "lib", "-I", "+unix", "lib/templates_lib.ml"], check=True)
-    subprocess.run(["ocamlc", "-c", "-I", "lib", "-I", "+unix", "lib/scaffolder_lib.ml"], check=True)
+    subprocess.run(["ocamlopt", "-c", "-I", "lib", "-I", "+unix", "lib/templates_lib.ml"], check=True)
+    subprocess.run(["ocamlopt", "-c", "-I", "lib", "-I", "+unix", "lib/scaffolder_lib.ml"], check=True)
 
 
 def step3_link():
     """
-    Step III: Link modules to main in order of dependencies
+    Step III: Link modules with main (native code).
     """
     print("[INFO] Step III - Linking modules...")
-    # Updated command with -I +unix
     subprocess.run([
-        "ocamlc",
+        "ocamlopt",
         "-I", "lib",
         "-I", "+unix",
         "-o", "scaffolds",
-        "unix.cma",
-        "lib/templates_lib.cmo",
-        "lib/scaffolder_lib.cmo",
+        "unix.cmxa",
+        "lib/templates_lib.cmx",
+        "lib/scaffolder_lib.cmx",
         "main.ml"
     ], check=True)
 
 
 def step4_cleanup():
     """
-    Step IV: Remove all .cmo, .cmi, .out files from the current dir and subdirs
+    Step IV: Remove all compilation artifacts.
     """
-    print("[INFO] Step IV - Cleaning up *.cmo, *.cmi, *.out...")
+    print("[INFO] Step IV - Cleaning up *.cmo, *.cmi, *.cmx, *.o, and *.out...")
     for root, dirs, files in os.walk("."):
         for f in files:
-            if f.endswith((".cmo", ".cmi", ".out")):
+            if f.endswith((".cmo", ".cmi", ".cmx", ".o", ".out")):
                 os.remove(os.path.join(root, f))
 
 
@@ -283,7 +283,7 @@ def step5_optional_test_scaffold(args):
         - remove 'test' dir if exists
         - run ./scaffolds --new test
     """
-    if "--and_generate_test_scaffold" in args:
+    if "--test" in args:
         print("[INFO] Step V - Detected --and_generate_test_scaffold flag.")
         if os.path.isdir("test"):
             print("[INFO] Step V - Removing existing 'test' directory...")
@@ -292,7 +292,7 @@ def step5_optional_test_scaffold(args):
         subprocess.run(["./scaffolds", "--new", "test"], check=True)
         print("[INFO] Step VI Completed!")
     else:
-        print("[INFO] Use the --and_generate_test_scaffold flag to generate the test scaffold.")
+        print("[INFO] Use the --test flag to generate the test scaffold.")
 
 
 ################################################################################
@@ -589,22 +589,60 @@ Components "main";
         subprocess.check_call(rsync_cmd, shell=True)
         print("[INFO] push_to_server completed successfully.")
 
+    def delete_all_but_last_version_build_folders():
+        build_folders_path = "debian/version_build_folders"
+
+        # List all the folders in the build_folders_path
+        version_folders = [
+            f for f in os.listdir(build_folders_path)
+            if os.path.isdir(os.path.join(build_folders_path, f)) and f.startswith("scaffolds_")
+        ]
+
+        # Sort the folders based on version
+        version_folders.sort(key=lambda x: parse_version(x.split('_')[1]), reverse=True)
+
+        # Keep the last version only
+        for folder in version_folders[1:]:
+            full_path = os.path.join(build_folders_path, folder)
+            print(f"[INFO] Deleting build folder: {full_path}")
+            shutil.rmtree(full_path)
+
+    def delete_all_but_last_version_debs():
+        debs_dir = "debian/version_debs"
+
+        # List all the .deb files
+        deb_files = [
+            f for f in os.listdir(debs_dir)
+            if os.path.isfile(os.path.join(debs_dir, f)) and f.endswith(".deb")
+        ]
+
+        # Sort them based on version
+        deb_files.sort(key=lambda x: parse_version(x.split('_')[1][:-4]), reverse=True)
+
+        # Keep the last version only
+        for deb in deb_files[1:]:
+            full_path = os.path.join(debs_dir, deb)
+            print(f"[INFO] Deleting deb file: {full_path}")
+            os.remove(full_path)
+
     version = get_new_version_number(MAJOR_RELEASE_NUMBER)
     build_deb(version)
     prepare_deb_for_distribution(version)
     push_to_server()
+    delete_all_but_last_version_build_folders()
+    delete_all_but_last_version_debs()
 
 
 def step6_optional_publish_release(args):
     """
     Step VI: Check for the --publish_release flag, if present:
     """
-    if "--publish_release" in args:
-        print("[INFO] Step VI - Detected --publish_release flag.")
+    if "--publish" in args:
+        print("[INFO] Step VI - Detected --publish flag.")
         publish_release()
         print("[INFO] Step VI Completed!")
     else:
-        print("[INFO] Use the --publish_release flag to publish the latest release.")
+        print("[INFO] Use the --publish flag to publish the latest release.")
 
 
 ################################################################################
