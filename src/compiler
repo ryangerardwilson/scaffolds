@@ -54,7 +54,7 @@ TAILWIND_CSS_BINARY=".tailwindcss-linux-x64"  # Hidden file
 INPUT_FILE=".tailwind_build_input"
 OUTPUT_FILE="resources/assets/styles.css"
 
-# Check if the Tailwind CSS binary already exists, download it if not
+# Step 5: Check if the Tailwind CSS binary already exists, download it if not
 if [ ! -f "$TAILWIND_CSS_BINARY" ]; then
     echo "[INFO] Downloading the Tailwind binary."
     curl -sLO "$TAILWIND_CSS_URL"
@@ -66,8 +66,7 @@ fi
 echo "[INFO] Generating Minified Tailwind CSS."
 ./"$TAILWIND_CSS_BINARY" -i "$INPUT_FILE" -o "$OUTPUT_FILE" --minify
 
-
-# Step 4: Optionally run
+# Step 6: Optionally run
 if [[ "$1" == "--run" ]]; then
   ./app
 else
