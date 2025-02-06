@@ -15,15 +15,12 @@ Before you can run this application, ensure you have the following installed:
 
 ### 3.1. Installation
 
-    curl -fsSL https://files.ryangerardwilson.com/scaffolds/debian/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/scaffolds.gpg; sudo echo "deb [arch=amd64 signed-by=/usr/share/keyrings/scaffolds.gpg] https://files.ryangerardwilson.com/scaffolds/debian stable main" | sudo tee /etc/apt/sources.list.d/scaffolds.list; sudo apt update; sudo apt-get install scaffolds
-
    curl -fsSL https://files.ryangerardwilson.com/scaffolds/debian/pubkey.gpg \
        | sudo gpg --dearmor -o /usr/share/keyrings/scaffolds.gpg
    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/scaffolds.gpg] https://files.ryangerardwilson.com/scaffolds/debian stable main" \
        | sudo tee /etc/apt/sources.list.d/scaffolds.list
    sudo apt update
    sudo apt-get install scaffolds
-
 
 ### 3.2. Subsequent Updates
 

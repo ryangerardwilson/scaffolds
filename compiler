@@ -177,11 +177,11 @@ def write_scaffolder_lib(all_files):
             f.write(f"  write_file (full_path \"{rel_path}\") Templates_lib.{var_name};\n\n")
 
         # After writing everything, specifically handle compile.sh
-        f.write("  (* Make compile.sh executable *)\n")
-        f.write("  let compile_sh_path = full_path \"compile.sh\" in\n")
-        f.write("  if Sys.file_exists compile_sh_path then (\n")
-        f.write("    Unix.chmod compile_sh_path 0o755;\n")
-        f.write("    Printf.printf \"[INFO] scaffolds - Set +x on compile.sh\\n\"\n")
+        f.write("  (* Make compiler executable *)\n")
+        f.write("  let compiler_path = full_path \"compiler\" in\n")
+        f.write("  if Sys.file_exists compiler_path then (\n")
+        f.write("    Unix.chmod compiler_path 0o755;\n")
+        f.write("    Printf.printf \"[INFO] scaffolds - Set +x on compiler\\n\"\n")
         f.write("  );\n\n")
 
         f.write("  print_endline \"[INFO] scaffolds - Scaffolding complete. You can now edit your files or compile.\";\n")
@@ -234,7 +234,7 @@ def step1_preprocessing():
 #   fi
 #
 #   # Execute the scaffold generation
-#   ./scaffolds --scaffold test
+#   ./scaffolds --new test
 #   echo "Test scaffold has been generated."
 # fi
 ##############################################################################
@@ -281,15 +281,15 @@ def step5_optional_test_scaffold(args):
     """
     Step V: Check for the --and_generate_test_scaffold flag, if present:
         - remove 'test' dir if exists
-        - run ./scaffolds --scaffold test
+        - run ./scaffolds --new test
     """
     if "--and_generate_test_scaffold" in args:
         print("[INFO] Step V - Detected --and_generate_test_scaffold flag.")
         if os.path.isdir("test"):
             print("[INFO] Step V - Removing existing 'test' directory...")
             subprocess.run(["rm", "-rf", "test"], check=True)
-        print("[INFO] Step V - Generating test scaffold via ./scaffolds --scaffold test")
-        subprocess.run(["./scaffolds", "--scaffold", "test"], check=True)
+        print("[INFO] Step V - Generating test scaffold via ./scaffolds --new test")
+        subprocess.run(["./scaffolds", "--new", "test"], check=True)
         print("[INFO] Step VI Completed!")
     else:
         print("[INFO] Use the --and_generate_test_scaffold flag to generate the test scaffold.")

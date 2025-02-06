@@ -89,7 +89,7 @@ let ext_tailwind_build_input = {|
 
 |}
 
-let file_compile_ext_sh = {|
+let file_compiler = {|
 #!/bin/bash
 
 # Step 1: Compile modules
@@ -160,10 +160,10 @@ echo "[INFO] Generating Minified Tailwind CSS."
 
 
 # Step 4: Optionally run
-if [[ "$1" == "--and_run" ]]; then
+if [[ "$1" == "--run" ]]; then
   ./app
 else
-  echo "[INFO] Use the --and_run flag to compile and run the app automatically."
+  echo "[INFO] Use the --run flag to compile and run the app automatically."
 fi
 
 

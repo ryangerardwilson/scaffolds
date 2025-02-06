@@ -27,22 +27,22 @@ let get_scaffold_directory () =
   (* Printf.printf "Command-line arguments: [%s]\n" (String.concat "; " args); *)
   flush stdout;
 
-  (* Find the index of the "--scaffold" flag *)
-  let rec find_scaffold_flag index = function
+  (* Find the index of the "--new" flag *)
+  let rec find_new_flag index = function
     | [] -> None
-    | "--scaffold" :: rest -> Some (index + 1)
-    | _ :: rest -> find_scaffold_flag (index + 1) rest
+    | "--new" :: rest -> Some (index + 1)
+    | _ :: rest -> find_new_flag (index + 1) rest
   in
 
-  match find_scaffold_flag 0 args with
+  match find_new_flag 0 args with
   | None ->
-      Printf.printf "'--scaffold' flag not found, erroring out.\n";
+      Printf.printf "'--new' flag not found, erroring out.\n";
       flush stdout;
       None
   | Some i when i < List.length args ->
       let target_arg = List.nth args i in
       if String.starts_with ~prefix:"--" target_arg then (
-        Printf.printf "No valid directory specified after '--scaffold', erroring out.\n";
+        Printf.printf "No valid directory specified after '--new', erroring out.\n";
         flush stdout;
         None
       ) else (
@@ -51,7 +51,7 @@ let get_scaffold_directory () =
         Some target_arg
       )
   | Some _ -> 
-      Printf.printf "No argument found after '--scaffold', erroring out.\n";
+      Printf.printf "No argument found after '--new', erroring out.\n";
       flush stdout;
       None
 
@@ -65,7 +65,7 @@ let () =
   (* Ensure the program has the --scaffold flag with a following argument *)
   match get_scaffold_directory () with
   | None ->
-      Printf.printf "Program requires a directory after '--scaffold' flag. Exiting.\n";
+      Printf.printf "Program requires a directory after '--new' flag. Exiting.\n";
       flush stdout;
       exit 1
   | Some target_path ->
