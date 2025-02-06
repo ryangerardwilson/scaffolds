@@ -1,5 +1,6 @@
-let () = Random.self_init ()
 
+let version = "2.0.12-1"
+let () = Random.self_init ()
 let ascii_art = String.concat "\n" [
 
   "";
@@ -16,6 +17,8 @@ let ascii_art = String.concat "\n" [
   "         ▐▛▀▚▖ ▀▀▀█     ▐▛▀▚▖ ▀▀▀█      █   █     ▐▌▝▜▌▝▚▄▄▖█         █ ▗▞▀▜▌    ▐▌ ▐▌█ █ ▄▄▄▀ ▀▄▄▄▀ █   █              ";
   "         ▐▙▄▞▘▄   █     ▐▌ ▐▌▄   █                ▝▚▄▞▘                 ▝▚▄▟▌    ▐▙█▟▌█ █                               ";
   "               ▀▀▀            ▀▀▀                                                                                       ";
+  "";
+  Printf.sprintf "Version: %s" version;
   "";
 ]
 
@@ -51,7 +54,7 @@ let get_scaffold_directory () =
         Some target_arg
       )
   | Some _ -> 
-      Printf.printf "No argument found after '--new', erroring out.\n";
+      Printf.printf "No argument found after '--new'.\n";
       flush stdout;
       None
 
@@ -65,7 +68,7 @@ let () =
   (* Ensure the program has the --scaffold flag with a following argument *)
   match get_scaffold_directory () with
   | None ->
-      Printf.printf "Program requires a directory after '--new' flag. Exiting.\n";
+      Printf.printf "Program requires the name of the new directory in which it will scaffold your project after the '--new' flag.\n";
       flush stdout;
       exit 1
   | Some target_path ->

@@ -14,6 +14,127 @@ MAJOR_RELEASE_NUMBER = 2
 # STEP I: Preprocessing – Generate lib/templates_lib.ml and lib/scaffolder_lib.ml
 ###############################################################################
 
+def get_new_version_number(MAJOR_RELEASE_NUMBER=None):
+    """
+    1) Reads ~/.rgwfuncsrc JSON to obtain the server credentials preset named 'icdattcwsm'.
+    2) SSH into the server and find the current .deb file in:
+       /home/rgw/Apps/frontend-sites/files.ryangerardwilson.com/scaffolds/debian/dists/stable/main/binary-amd64
+    3) Parse the .deb file name to extract the current version string (MAJOR.MINOR.PATCH-REV).
+    4) If MAJOR_RELEASE_NUMBER is None or matches the current MAJOR, return a version
+       with PATCH incremented by 1. Otherwise, return a version of the form:
+       {MAJOR_RELEASE_NUMBER}.0.1-1
+    """
+
+    # -------------------------------------------------------------------------
+    # Step 1) Read ~/.rgwfuncsrc and find the 'icdattcwsm' preset
+    # -------------------------------------------------------------------------
+    funcs_path = os.path.expanduser("~/.rgwfuncsrc")
+    if not os.path.exists(funcs_path):
+        raise FileNotFoundError(f"Cannot find config file: {funcs_path}")
+
+    with open(funcs_path, "r") as f:
+        data = json.load(f)
+
+    vm_presets = data.get("vm_presets", [])
+    preset = next((p for p in vm_presets if p.get("name") == "icdattcwsm"), None)
+    if not preset:
+        raise ValueError("No preset named 'icdattcwsm' found in ~/.rgwfuncs")
+
+    host = preset["host"]
+    ssh_user = preset["ssh_user"]
+    ssh_key_path = preset["ssh_key_path"]
+
+    # -------------------------------------------------------------------------
+    # Step 2) SSH to the server to locate the current .deb file
+    # -------------------------------------------------------------------------
+    remote_deb_dir = (
+        "/home/rgw/Apps/frontend-sites/files.ryangerardwilson.com/scaffolds/debian/"
+        "dists/stable/main/binary-amd64"
+    )
+
+    # List all .deb files
+    ssh_cmd = (
+        f"ssh -i {ssh_key_path} {ssh_user}@{host} "
+        f"\"ls -1 {remote_deb_dir}/*.deb 2>/dev/null || true\""
+    )
+    output = subprocess.check_output(ssh_cmd, shell=True).decode().strip()
+
+    # If no .deb files exist, raise an error (or handle how you prefer)
+    if not output:
+        raise FileNotFoundError(
+            f"No .deb files found in {remote_deb_dir}"
+        )
+
+    # For simplicity, assume there's only one relevant .deb file, or
+    # take the last line if multiple. Adjust logic as needed.
+    deb_file_path = output.split("\n")[-1].strip()
+    # Example: /home/rgw/.../binary-amd64/scaffolds_1.0.3-1.deb
+
+    # -------------------------------------------------------------------------
+    # Step 3) Parse the .deb file name to extract the version
+    #         We expect a name of the form: scaffolds_X.Y.Z-REV.deb
+    # -------------------------------------------------------------------------
+    filename = os.path.basename(deb_file_path)  # scaffolds_1.0.3-1.deb
+    match = re.match(r"^scaffolds_(\d+\.\d+\.\d+)-(\d+)\.deb$", filename)
+    if not match:
+        raise ValueError(
+            f"Could not parse version from deb file name: {filename}"
+        )
+
+    version_str = match.group(1)  # "1.0.3"
+    revision_str = match.group(2)  # "1"
+
+    # Split the version_str into major, minor, patch
+    major_str, minor_str, patch_str = version_str.split(".")
+    server_major = int(major_str)    # 1
+    server_minor = int(minor_str)    # 0
+    server_patch = int(patch_str)    # 3
+    server_revision = int(revision_str)  # 1
+
+    # -------------------------------------------------------------------------
+    # Step 4) Compute new version based on MAJOR_RELEASE_NUMBER
+    # -------------------------------------------------------------------------
+    if MAJOR_RELEASE_NUMBER is None:
+        # If user didn't specify a new major, we assume they
+        # want to increment the patch of the existing major.
+        new_major = server_major
+        new_minor = server_minor
+        new_patch = server_patch + 1
+        new_revision = server_revision  # keep the same revision
+    else:
+        # Convert user input to int
+        user_major = int(MAJOR_RELEASE_NUMBER)
+
+        if user_major == server_major:
+            # If the requested major is the same as the server major,
+            # just increment patch
+            new_major = server_major
+            new_minor = server_minor
+            new_patch = server_patch + 1
+            new_revision = server_revision
+        else:
+            # Otherwise, create a new major version: MAJOR.0.1-1
+            new_major = user_major
+            new_minor = 0
+            new_patch = 1
+            new_revision = 1
+
+    # Construct the new version string
+    new_version_str = f"{new_major}.{new_minor}.{new_patch}-{new_revision}"
+
+    return new_version_str
+
+def replace_version_placeholder(file_path, version):
+    with open(file_path, 'r') as file:
+        content = file.read()
+
+    # Replace the placeholder with the actual version
+    new_content = re.sub(r'\{\{VERSION_PLACEHOLDER\}\}', version, content)
+
+    # Optionally, write to a temporary file or overwrite
+    with open(file_path, 'w') as file:
+        file.write(new_content)
+
 
 def build_variable_name(root_relative_path):
     """
@@ -190,7 +311,17 @@ def write_scaffolder_lib(all_files):
     print(f"[INFO] Step I - Generated {output_path}")
 
 
-def step1_preprocessing():
+def step1_preprocessing(args, version):
+
+    if "--publish" in args:
+        print("[INFO] Step I - Preprocessing – Adding version number to main.ml")
+        # Assume main.ml is in the same directory as this script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        main_ml_path = os.path.join(script_dir, 'main.ml')
+
+        # Replace the placeholder
+        replace_version_placeholder(main_ml_path, version)
+
     print("[INFO] Step I - Preprocessing – Generating templates_lib.ml and scaffolder_lib.ml from src/ ...")
     src_dir = "src"
     if not os.path.isdir(src_dir):
@@ -299,117 +430,8 @@ def step5_optional_test_scaffold(args):
 # Step VI - Publish Release
 ################################################################################
 
-def publish_release():
+def publish_release(version):
 
-    def get_new_version_number(MAJOR_RELEASE_NUMBER=None):
-        """
-        1) Reads ~/.rgwfuncsrc JSON to obtain the server credentials preset named 'icdattcwsm'.
-        2) SSH into the server and find the current .deb file in:
-           /home/rgw/Apps/frontend-sites/files.ryangerardwilson.com/scaffolds/debian/dists/stable/main/binary-amd64
-        3) Parse the .deb file name to extract the current version string (MAJOR.MINOR.PATCH-REV).
-        4) If MAJOR_RELEASE_NUMBER is None or matches the current MAJOR, return a version
-           with PATCH incremented by 1. Otherwise, return a version of the form:
-           {MAJOR_RELEASE_NUMBER}.0.1-1
-        """
-
-        # -------------------------------------------------------------------------
-        # Step 1) Read ~/.rgwfuncsrc and find the 'icdattcwsm' preset
-        # -------------------------------------------------------------------------
-        funcs_path = os.path.expanduser("~/.rgwfuncsrc")
-        if not os.path.exists(funcs_path):
-            raise FileNotFoundError(f"Cannot find config file: {funcs_path}")
-
-        with open(funcs_path, "r") as f:
-            data = json.load(f)
-
-        vm_presets = data.get("vm_presets", [])
-        preset = next((p for p in vm_presets if p.get("name") == "icdattcwsm"), None)
-        if not preset:
-            raise ValueError("No preset named 'icdattcwsm' found in ~/.rgwfuncs")
-
-        host = preset["host"]
-        ssh_user = preset["ssh_user"]
-        ssh_key_path = preset["ssh_key_path"]
-
-        # -------------------------------------------------------------------------
-        # Step 2) SSH to the server to locate the current .deb file
-        # -------------------------------------------------------------------------
-        remote_deb_dir = (
-            "/home/rgw/Apps/frontend-sites/files.ryangerardwilson.com/scaffolds/debian/"
-            "dists/stable/main/binary-amd64"
-        )
-
-        # List all .deb files
-        ssh_cmd = (
-            f"ssh -i {ssh_key_path} {ssh_user}@{host} "
-            f"\"ls -1 {remote_deb_dir}/*.deb 2>/dev/null || true\""
-        )
-        output = subprocess.check_output(ssh_cmd, shell=True).decode().strip()
-
-        # If no .deb files exist, raise an error (or handle how you prefer)
-        if not output:
-            raise FileNotFoundError(
-                f"No .deb files found in {remote_deb_dir}"
-            )
-
-        # For simplicity, assume there's only one relevant .deb file, or
-        # take the last line if multiple. Adjust logic as needed.
-        deb_file_path = output.split("\n")[-1].strip()
-        # Example: /home/rgw/.../binary-amd64/scaffolds_1.0.3-1.deb
-
-        # -------------------------------------------------------------------------
-        # Step 3) Parse the .deb file name to extract the version
-        #         We expect a name of the form: scaffolds_X.Y.Z-REV.deb
-        # -------------------------------------------------------------------------
-        filename = os.path.basename(deb_file_path)  # scaffolds_1.0.3-1.deb
-        match = re.match(r"^scaffolds_(\d+\.\d+\.\d+)-(\d+)\.deb$", filename)
-        if not match:
-            raise ValueError(
-                f"Could not parse version from deb file name: {filename}"
-            )
-
-        version_str = match.group(1)  # "1.0.3"
-        revision_str = match.group(2)  # "1"
-
-        # Split the version_str into major, minor, patch
-        major_str, minor_str, patch_str = version_str.split(".")
-        server_major = int(major_str)    # 1
-        server_minor = int(minor_str)    # 0
-        server_patch = int(patch_str)    # 3
-        server_revision = int(revision_str)  # 1
-
-        # -------------------------------------------------------------------------
-        # Step 4) Compute new version based on MAJOR_RELEASE_NUMBER
-        # -------------------------------------------------------------------------
-        if MAJOR_RELEASE_NUMBER is None:
-            # If user didn't specify a new major, we assume they
-            # want to increment the patch of the existing major.
-            new_major = server_major
-            new_minor = server_minor
-            new_patch = server_patch + 1
-            new_revision = server_revision  # keep the same revision
-        else:
-            # Convert user input to int
-            user_major = int(MAJOR_RELEASE_NUMBER)
-
-            if user_major == server_major:
-                # If the requested major is the same as the server major,
-                # just increment patch
-                new_major = server_major
-                new_minor = server_minor
-                new_patch = server_patch + 1
-                new_revision = server_revision
-            else:
-                # Otherwise, create a new major version: MAJOR.0.1-1
-                new_major = user_major
-                new_minor = 0
-                new_patch = 1
-                new_revision = 1
-
-        # Construct the new version string
-        new_version_str = f"{new_major}.{new_minor}.{new_patch}-{new_revision}"
-
-        return new_version_str
 
     def build_deb(version):
         # 2) Define paths/naming
@@ -625,7 +647,7 @@ Components "main";
             print(f"[INFO] Deleting deb file: {full_path}")
             os.remove(full_path)
 
-    version = get_new_version_number(MAJOR_RELEASE_NUMBER)
+    # version = get_new_version_number(MAJOR_RELEASE_NUMBER)
     build_deb(version)
     prepare_deb_for_distribution(version)
     push_to_server()
@@ -633,13 +655,13 @@ Components "main";
     delete_all_but_last_version_debs()
 
 
-def step6_optional_publish_release(args):
+def step6_optional_publish_release(args, version):
     """
     Step VI: Check for the --publish_release flag, if present:
     """
     if "--publish" in args:
         print("[INFO] Step VI - Detected --publish flag.")
-        publish_release()
+        publish_release(version)
         print("[INFO] Step VI Completed!")
     else:
         print("[INFO] Use the --publish flag to publish the latest release.")
@@ -651,8 +673,10 @@ def step6_optional_publish_release(args):
 
 def main():
 
+    version = get_new_version_number()
+
     # Step I: Preprocessing
-    step1_preprocessing()
+    step1_preprocessing(sys.argv[1:], version)
 
     # Step II
     step2_compile()
@@ -668,7 +692,7 @@ def main():
     step5_optional_test_scaffold(sys.argv[1:])
 
     # Step VI
-    step6_optional_publish_release(sys.argv[1:])
+    step6_optional_publish_release(sys.argv[1:], version)
     print()
 
 
