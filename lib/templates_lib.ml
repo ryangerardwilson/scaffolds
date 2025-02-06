@@ -93,7 +93,7 @@ let file_compiler = {|
 #!/bin/bash
 
 # Step 1: Compile modules (native code)
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
+ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
     -I utils -I lib utils/renderer.ml
 
 ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
@@ -175,7 +175,7 @@ let dir_dbs_dir_auth_file_schema_ext_sql = {|
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
+  password TEXT NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -562,6 +562,7 @@ let dir_utils_file_renderer_ext_ml = {|
 open Cohttp
 open Cohttp_lwt_unix
 open Lwt.Infix
+open Sqlite3
 
 (* 
     Global session storage means than for x number users, x session 
@@ -628,51 +629,123 @@ let handle_session_destruction (req : Cohttp.Request.t) : unit =
       | Some session_id -> Hashtbl.remove session_store session_id
       | None -> ()
 
-
 (* Logs the user in *)
-let handle_auth body_str =
-  (* Local function to create a session. *)
-  let create_session ~(username : string) : string =
+let handle_auth (body_str : string) =
+
+  (* 1. Helper to open the DB using errcode. *)
+  let db_open_local (path : string) =
+    (*log "Attempting to open database at path: %s" path;*)
+    let db = db_open path in
+    match errcode db with
+    | Rc.OK ->
+        (*log "Database opened successfully.";*)
+        db
+    | rc ->
+        (*log "Failed to open database with error: %s" (Rc.to_string rc);*)
+        failwith ("Could not open DB: " ^ Rc.to_string rc)
+  in
+
+  (* 2. Parse "key=value" pairs from x-www-form-urlencoded. *)
+  let decode_url str =
+    let hex_to_char h = Char.chr (int_of_string ("0x" ^ h)) in
+    let len = String.length str in
+    let buf = Buffer.create len in
+    let rec decode i =
+      if i >= len then
+        Buffer.contents buf
+      else
+        match str.[i] with
+        | '%' when i + 2 < len ->
+            Buffer.add_char buf (hex_to_char (String.sub str (i + 1) 2));
+            decode (i + 3)
+        | '+' ->
+            Buffer.add_char buf ' ';
+            decode (i + 1)
+        | c ->
+            Buffer.add_char buf c;
+            decode (i + 1)
+    in
+    decode 0
+  in
+
+  (* 3. Function to parse "key=value" pairs from x-www-form-urlencoded string *)
+  let parse_post_body form_body =
+    (*log "Parsing form body: %s" form_body;*)
+    let parts = Str.split (Str.regexp_string "&") form_body in
+    List.map (fun part ->
+      match Str.bounded_split (Str.regexp_string "=") part 2 with
+      | [k; v] ->
+          let decoded_key = decode_url k in
+          let decoded_value = decode_url v in
+          (decoded_key, decoded_value)
+      | _ -> ("", "")
+    ) parts
+  in
+
+  (* 4. A helper to create a random session. *)
+  let create_session (username : string) : string =
+    (*log "Creating session for user: %s" username;*)
     let rand_bytes = Bytes.create 16 in
     for i = 0 to 15 do
       Bytes.set rand_bytes i (char_of_int (Random.int 256))
     done;
     let session_id = Base64.encode_exn (Bytes.to_string rand_bytes) in
     Hashtbl.replace session_store session_id username;
+    (*log "Session created with ID: %s" session_id;*)
     session_id
   in
 
-  (* Define valid users as a list of tuples (username, password) *)
-  let valid_users = [
-    ("admin", "secret");
-    ("bob", "bob123");
-    ("alice", "alice123");
-  ] in
-
-  let parse_post_body (body_str : string) : (string * string) list =
-    let parts = Str.split (Str.regexp_string "&") body_str in
-    List.map (fun part ->
-        match Str.bounded_split (Str.regexp_string "=") part 2 with
-        | [k; v] -> (k, v)
-        | _ -> ("", "")
-      ) parts
+  (* 5. Helper: convert Data.t to string option. *)
+  let data_to_string_opt (d : Data.t) : string option =
+    match d with
+    | Data.NULL -> None
+    | Data.TEXT txt -> Some txt
+    | _ -> None
   in
 
+  (* 6. Open the database. *)
+  let db_path = "dbs/auth/auth.db" in
+  let db = db_open_local db_path in
+
+  (* 7. Parse the form data. Keep them as string option. *)
   let form_data = parse_post_body body_str in
-  let username_submitted = List.assoc_opt "username" form_data |> Option.value ~default:"" in
-  let password_submitted = List.assoc_opt "password" form_data |> Option.value ~default:"" in
+  let email_submitted = List.assoc_opt "email" form_data in
+  let password_submitted = List.assoc_opt "password" form_data in
 
+  (* 8. Prepare and bind for the query. *)
+  let stmt = prepare db "SELECT email, password FROM users WHERE email = ?" in
+  (match email_submitted with
+   | Some e ->
+       ignore (bind_text stmt 1 e)
+   | None ->
+       ignore (bind stmt 1 Data.NULL));
+
+  (* 9. maybe_user is a string option: Some db_email if the password matches, None otherwise. *)
   let maybe_user =
-    List.find_opt
-      (fun (username, password) -> username = username_submitted && password = password_submitted)
-      valid_users
+    match step stmt with
+    | Rc.ROW ->
+        let db_email = data_to_string_opt (column stmt 0) in
+        let db_password = data_to_string_opt (column stmt 1) in
+        if db_password = password_submitted then
+          db_email
+        else
+          None
+    | Rc.DONE -> None
+    | rc -> failwith ("Error stepping statement: " ^ Rc.to_string rc)
   in
 
+  ignore (finalize stmt);
+  ignore (db_close db);
+
+  (* 10. If maybe_user is Some e, create a session; otherwise return an error. *)
   match maybe_user with
-  | Some (username, _) ->
-      let session_id = create_session ~username in
-      let headers = Header.add (Header.init ()) "Set-Cookie"
-          ("sessionid=" ^ session_id ^ "; Path=/") in
+  | Some user_email ->
+      let session_id = create_session user_email in
+      let headers =
+        Cohttp.Header.init ()
+        |> fun h -> Cohttp.Header.add h "Set-Cookie"
+          ("sessionid=" ^ session_id ^ "; Path=/")
+      in
       Ok (headers, Uri.of_string "/dashboard")
   | None ->
       Error "Invalid credentials. Please try again."
@@ -837,7 +910,7 @@ let dir_resources_file_login_ext_html = {|
     <form method="POST" action="/login">
       <label
         >Username:
-        <input type="text" name="username" />
+        <input type="text" name="email" />
       </label>
       <br />
       <label
@@ -1074,8 +1147,10 @@ let handle_dashboard _conn req _body =
         ("{{APP_NAME}}", app_name);
         ("{{USERNAME}}", username_string)
       ] in
+      (*
       dump_and_die [any filename; any substitutions]
       >>= fun _ ->
+      *)
       Renderer.server_side_render filename substitutions
 
 
