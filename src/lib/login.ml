@@ -6,12 +6,23 @@ let handle_login _conn req body =
 
   match Request.meth req with
   | `GET ->
-      Cohttp_lwt.Body.to_string body >>= fun body_str ->
+
       let filename = "login.html" in
+
+      let substitutions = [
+        ("{{APP_NAME}}", app_name);
+        ("{{ERROR_MESSAGE}}", "")
+      ] in
+
+
+      Renderer.server_side_render filename substitutions >>= fun (response, body) ->
       let input_list = [Debugger.any req] in
       let output_list = [Debugger.any filename] in
-      Lwt.async (fun () -> Debugger.log_event "/login => handle_login => GET" input_list output_list);
-      Server.respond_string ~status:`OK ~body:body_str ()
+      Lwt.async (fun () ->
+        Debugger.log_event "/login => handle_login => GET" input_list output_list);
+      Server.respond ~status:`OK ~body:body ()
+
+
   | `POST ->
       Cohttp_lwt.Body.to_string body >>= fun body_str ->
       let auth_result = Authentication.handle_auth body_str in
