@@ -1,5 +1,3 @@
-open Lwt.Infix
-open Cohttp
 open Cohttp_lwt_unix
 
 (* Serve any static file under "PUBLIC_DIR/assets". *)

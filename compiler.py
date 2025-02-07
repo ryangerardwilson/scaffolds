@@ -9,10 +9,12 @@ from packaging.version import parse as parse_version
 
 
 MAJOR_RELEASE_NUMBER = 2
+OCAML_PACKAGES = ""  # A comma separated string of packages injected into the compile and link commands
 
 ###############################################################################
 # STEP I: Preprocessing – Generate lib/templates_lib.ml and lib/scaffolder_lib.ml
 ###############################################################################
+
 
 def get_new_version_number(MAJOR_RELEASE_NUMBER=None):
     """
@@ -123,6 +125,7 @@ def get_new_version_number(MAJOR_RELEASE_NUMBER=None):
     new_version_str = f"{new_major}.{new_minor}.{new_patch}-{new_revision}"
 
     return new_version_str
+
 
 def replace_version_placeholder(file_path, version):
     with open(file_path, 'r') as file:
@@ -347,8 +350,8 @@ def step1_preprocessing(args, version):
 # ocamlc -c -I lib lib/templates_lib.ml
 # ocamlc -c -I lib lib/scaffolder_lib.ml
 # Include the unix directory in the search path
-# ocamlc -c -I lib -I +unix lib/templates_lib.ml
-# ocamlc -c -I lib -I +unix lib/scaffolder_lib.ml
+# ocamlc -c -I lib -I +unix -w +33 lib/templates_lib.ml
+# ocamlc -c -I lib -I +unix -w +33 lib/scaffolder_lib.ml
 
 
 # # Step II - Link modules to main in order of dependencies
@@ -371,30 +374,56 @@ def step1_preprocessing(args, version):
 # fi
 ##############################################################################
 
-def step2_compile():
+def step2_compile(packages=OCAML_PACKAGES):
     """
     Step II: Compile modules in order of dependencies (native code).
+
+    The 'packages' parameter should be a comma-separated string of packages.
+    If it is not empty, the '-package' flag will be added to the command.
     """
     print("[INFO] Step II - Compiling modules...")
-    subprocess.run(["ocamlopt", "-c", "-I", "lib", "-I", "+unix", "lib/templates_lib.ml"], check=True)
-    subprocess.run(["ocamlopt", "-c", "-I", "lib", "-I", "+unix", "lib/scaffolder_lib.ml"], check=True)
+
+    # Base command options
+    base_cmd = ["ocamlfind", "ocamlopt", "-c", "-I", "lib", "-I", "+unix", "-w", "+33"]
+
+    # If packages is not empty, include the '-package' flag and its value
+    if packages:
+        pkg_option = ["-package", packages]
+    else:
+        pkg_option = []
+
+    # Compile each module using the constructed command line
+    cmd_templates = base_cmd + pkg_option + ["lib/templates_lib.ml"]
+    subprocess.run(cmd_templates, check=True)
+
+    cmd_scaffolder = base_cmd + pkg_option + ["lib/scaffolder_lib.ml"]
+    subprocess.run(cmd_scaffolder, check=True)
 
 
-def step3_link():
+def step3_link(packages=OCAML_PACKAGES):
     """
     Step III: Link modules with main (native code).
+
+    The 'packages' parameter should be a comma-separated string of packages.
+    If it is not empty, the '-package' flag will be added to the command.
     """
     print("[INFO] Step III - Linking modules...")
-    subprocess.run([
-        "ocamlopt",
-        "-I", "lib",
-        "-I", "+unix",
-        "-o", "scaffolds",
+
+    # Base command options
+    base_cmd = ["ocamlfind", "ocamlopt", "-I", "lib", "-I", "+unix", "-o", "scaffolds", "-w", "+33"]
+
+    # Conditionally add package flags if packages string is not empty
+    pkg_option = ["-package", packages] if packages else []
+
+    # Prepare the full linking command
+    full_cmd = base_cmd + pkg_option + [
         "unix.cmxa",
         "lib/templates_lib.cmx",
         "lib/scaffolder_lib.cmx",
         "main.ml"
-    ], check=True)
+    ]
+
+    subprocess.run(full_cmd, check=True)
 
 
 def step4_cleanup():
@@ -431,7 +460,6 @@ def step5_optional_test_scaffold(args):
 ################################################################################
 
 def publish_release(version):
-
 
     def build_deb(version):
         # 2) Define paths/naming

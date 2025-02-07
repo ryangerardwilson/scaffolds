@@ -1,11 +1,7 @@
-open Cohttp
-open Cohttp_lwt_unix
-open Lwt.Infix
-
 
 (* Handle landing page requests *)
 let handle_about _conn req _body =
-  let username = Renderer.get_username_if_user_is_logged_in req in
+  let username = Authentication.get_username_if_user_is_logged_in req in
 
   let logged_in_as_html =
     match username with

@@ -1,41 +1,48 @@
 #!/bin/bash
 
+# Define all packages in one place as a comma-separated list.
+PACKAGES="cohttp-lwt-unix,dotenv,str,base64,sqlite3,yojson"
+
 # Step 1: Compile modules (native code)
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
-    -I utils -I lib utils/renderer.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/migrations.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
-    -I utils -I lib utils/migrations.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/renderer.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,yojson \
-    -I utils -I lib utils/debugger.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/authentication.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/landing.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/debugger.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/about.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/landing.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/login.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/about.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/logout.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/login.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/dashboard.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/logout.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/assets.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/dashboard.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib main.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/assets.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 main.ml
 
 # Step 2: Link modules (native code)
-ocamlfind ocamlopt -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3,yojson -linkpkg \
+ocamlfind ocamlopt -thread -package "$PACKAGES" -linkpkg \
     -o app \
-    utils/renderer.cmx \
     utils/migrations.cmx \
+    utils/renderer.cmx \
+    utils/authentication.cmx \
     utils/debugger.cmx \
     lib/landing.cmx \
     lib/about.cmx \

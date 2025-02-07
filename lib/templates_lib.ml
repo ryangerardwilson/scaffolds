@@ -92,42 +92,49 @@ let ext_tailwind_build_input = {|
 let file_compiler = {|
 #!/bin/bash
 
+# Define all packages in one place as a comma-separated list.
+PACKAGES="cohttp-lwt-unix,dotenv,str,base64,sqlite3,yojson"
+
 # Step 1: Compile modules (native code)
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
-    -I utils -I lib utils/renderer.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/migrations.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3 \
-    -I utils -I lib utils/migrations.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/renderer.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64,yojson \
-    -I utils -I lib utils/debugger.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/authentication.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/landing.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/debugger.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/about.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/landing.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/login.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/about.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/logout.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/login.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/dashboard.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/logout.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib lib/assets.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/dashboard.ml
 
-ocamlfind ocamlopt -c -thread -package cohttp-lwt-unix,dotenv,str,base64 \
-    -I utils -I lib main.ml
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/assets.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 main.ml
 
 # Step 2: Link modules (native code)
-ocamlfind ocamlopt -thread -package cohttp-lwt-unix,dotenv,str,base64,sqlite3,yojson -linkpkg \
+ocamlfind ocamlopt -thread -package "$PACKAGES" -linkpkg \
     -o app \
-    utils/renderer.cmx \
     utils/migrations.cmx \
+    utils/renderer.cmx \
+    utils/authentication.cmx \
     utils/debugger.cmx \
     lib/landing.cmx \
     lib/about.cmx \
@@ -306,6 +313,9 @@ let initiate_migrations () : bool Lwt.t =
 
             (* Then raise an exception so the caller's catch block can handle it. *)
             failwith ""
+
+
+
       end
     ) statements
   in
@@ -412,7 +422,6 @@ let initiate_migrations () : bool Lwt.t =
 
 let dir_utils_file_debugger_ext_ml = {|
 open Lwt
-open Yojson.Basic
 
 (* Exception for short-circuiting in main.ml *)
 exception DumpAndDie of string
@@ -558,11 +567,12 @@ let dump_and_die (values : Obj.t list) =
 
 |}
 
-let dir_utils_file_renderer_ext_ml = {|
+let dir_utils_file_authentication_ext_ml = {|
 open Cohttp
 open Cohttp_lwt_unix
-open Lwt.Infix
 open Sqlite3
+
+
 
 (* 
     Global session storage means than for x number users, x session 
@@ -583,51 +593,6 @@ open Sqlite3
 *)
 let session_store : (string, string) Hashtbl.t = Hashtbl.create 16
 
-
-let get_env var =
-  try
-    Sys.getenv var
-  with
-  | Not_found -> "None"
-
-(* Generates a random session_id, then associates it with the given username. *)
-(*
-let create_session ~(username : string) : string =
-  let rand_bytes = Bytes.create 16 in
-  for i = 0 to 15 do
-    Bytes.set rand_bytes i (char_of_int (Random.int 256))
-  done;
-  let session_id = Base64.encode_exn (Bytes.to_string rand_bytes) in
-  Hashtbl.replace session_store session_id username;
-  session_id
-*)
-
-(* Removes an existing session from the store by session ID in the request. *)
-let handle_session_destruction (req : Cohttp.Request.t) : unit =
-  let extract_session_id (cookie_str : string) : string option =
-    let parts = String.split_on_char ';' cookie_str in
-    let find_sessionid kv =
-      let kv = String.trim kv in
-      if String.length kv >= 10 && String.sub kv 0 10 = "sessionid="
-      then Some (String.sub kv 10 (String.length kv - 10))
-      else None
-    in
-    List.fold_left
-      (fun acc item ->
-         match acc with
-         | None -> find_sessionid item
-         | Some _ -> acc)
-      None
-      parts
-  in
-
-  let cookie_header = Cohttp.Header.get (Request.headers req) "cookie" in
-  match cookie_header with
-  | None -> ()
-  | Some cookie_str ->
-      match extract_session_id cookie_str with
-      | Some session_id -> Hashtbl.remove session_store session_id
-      | None -> ()
 
 (* Logs the user in *)
 let handle_auth (body_str : string) =
@@ -751,6 +716,8 @@ let handle_auth (body_str : string) =
       Error "Invalid credentials. Please try again."
 
 
+
+
 (* Determine if a user is logged in by checking the session *)
 let get_username_if_user_is_logged_in req =
   (* Function to extract session ID from cookie string; returns a string option *)
@@ -815,6 +782,46 @@ let handle_cookie (req : Request.t) : string option =
     | None -> None
     | Some sid ->
       get_username_for_session sid
+
+
+
+
+
+
+(* Removes an existing session from the store by session ID in the request. *)
+let handle_session_destruction (req : Cohttp.Request.t) : unit =
+  let extract_session_id (cookie_str : string) : string option =
+    let parts = String.split_on_char ';' cookie_str in
+    let find_sessionid kv =
+      let kv = String.trim kv in
+      if String.length kv >= 10 && String.sub kv 0 10 = "sessionid="
+      then Some (String.sub kv 10 (String.length kv - 10))
+      else None
+    in
+    List.fold_left
+      (fun acc item ->
+         match acc with
+         | None -> find_sessionid item
+         | Some _ -> acc)
+      None
+      parts
+  in
+
+  let cookie_header = Cohttp.Header.get (Request.headers req) "cookie" in
+  match cookie_header with
+  | None -> ()
+  | Some cookie_str ->
+      match extract_session_id cookie_str with
+      | Some session_id -> Hashtbl.remove session_store session_id
+      | None -> ()
+
+
+|}
+
+let dir_utils_file_renderer_ext_ml = {|
+open Cohttp_lwt_unix
+open Lwt.Infix
+
 
 
 (*
@@ -965,7 +972,6 @@ let dir_resources_dir_assets_file_styles_ext_css = {|
 |}
 
 let dir_lib_file_login_ext_ml = {|
-open Cohttp
 open Cohttp_lwt_unix
 open Lwt.Infix
 
@@ -985,7 +991,7 @@ let handle_login _conn req body =
 
   | `POST ->
       Cohttp_lwt.Body.to_string body >>= fun body_str ->
-      let auth_result = Renderer.handle_auth body_str in
+      let auth_result = Authentication.handle_auth body_str in
       begin match auth_result with
       | Ok (headers, uri) ->
           Server.respond_redirect ~headers ~uri ()
@@ -1010,14 +1016,12 @@ let handle_login _conn req body =
 |}
 
 let dir_lib_file_logout_ext_ml = {|
-open Cohttp
 open Cohttp_lwt_unix
-open Lwt.Infix
 
 (* Handler for /logout *)
 let handle_logout _conn req _body =
   (* Destroy the session associated with the request *)
-  Renderer.handle_session_destruction req;
+  Authentication.handle_session_destruction req;
   (* Redirect them to landing page ("/") or wherever you prefer *)
   Server.respond_redirect ~uri:(Uri.of_string "/") ()
 
@@ -1025,14 +1029,10 @@ let handle_logout _conn req _body =
 |}
 
 let dir_lib_file_about_ext_ml = {|
-open Cohttp
-open Cohttp_lwt_unix
-open Lwt.Infix
-
 
 (* Handle landing page requests *)
 let handle_about _conn req _body =
-  let username = Renderer.get_username_if_user_is_logged_in req in
+  let username = Authentication.get_username_if_user_is_logged_in req in
 
   let logged_in_as_html =
     match username with
@@ -1064,8 +1064,6 @@ let handle_about _conn req _body =
 |}
 
 let dir_lib_file_assets_ext_ml = {|
-open Lwt.Infix
-open Cohttp
 open Cohttp_lwt_unix
 
 (* Serve any static file under "PUBLIC_DIR/assets". *)
@@ -1118,13 +1116,12 @@ let handle_assets conn req _body =
 |}
 
 let dir_lib_file_dashboard_ext_ml = {|
-open Cohttp
 open Cohttp_lwt_unix
 open Lwt.Infix
 open Debugger  (* So we can call dump_and_die. *)
 
 let handle_dashboard _conn req _body =
-  let username = Renderer.get_username_if_user_is_logged_in req in
+  let username = Authentication.get_username_if_user_is_logged_in req in
   let app_name = Sys.getenv "APP_NAME" in
 
   match username with
@@ -1147,10 +1144,10 @@ let handle_dashboard _conn req _body =
         ("{{APP_NAME}}", app_name);
         ("{{USERNAME}}", username_string)
       ] in
-      (*
+      
       dump_and_die [any filename; any substitutions]
       >>= fun _ ->
-      *)
+      
       Renderer.server_side_render filename substitutions
 
 
@@ -1159,15 +1156,11 @@ let handle_dashboard _conn req _body =
 let dir_lib_file_landing_ext_ml = {|
 (* lib/Landing.ml *)
 
-open Cohttp
-open Cohttp_lwt_unix
-open Lwt.Infix
-open Base64  (* Assume Base64 is used for encoding *)
 
 
 (* Handle landing page requests *)
 let handle_landing _conn req _body =
-  let username = Renderer.get_username_if_user_is_logged_in req in
+  let username = Authentication.get_username_if_user_is_logged_in req in
 
   let logged_in_as_html =
     match username with

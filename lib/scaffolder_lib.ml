@@ -46,6 +46,9 @@ let scaffold target_dir =
   write_file (full_path "utils/debugger.ml") Templates_lib.dir_utils_file_debugger_ext_ml;
 
   ensure_full_path (full_path "utils");
+  write_file (full_path "utils/authentication.ml") Templates_lib.dir_utils_file_authentication_ext_ml;
+
+  ensure_full_path (full_path "utils");
   write_file (full_path "utils/renderer.ml") Templates_lib.dir_utils_file_renderer_ext_ml;
 
   ensure_full_path (full_path "resources");

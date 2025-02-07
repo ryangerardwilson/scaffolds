@@ -1,5 +1,4 @@
 open Lwt
-open Yojson.Basic
 
 (* Exception for short-circuiting in main.ml *)
 exception DumpAndDie of string

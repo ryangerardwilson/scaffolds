@@ -1,10 +1,9 @@
-open Cohttp
 open Cohttp_lwt_unix
 open Lwt.Infix
 open Debugger  (* So we can call dump_and_die. *)
 
 let handle_dashboard _conn req _body =
-  let username = Renderer.get_username_if_user_is_logged_in req in
+  let username = Authentication.get_username_if_user_is_logged_in req in
   let app_name = Sys.getenv "APP_NAME" in
 
   match username with
@@ -27,9 +26,9 @@ let handle_dashboard _conn req _body =
         ("{{APP_NAME}}", app_name);
         ("{{USERNAME}}", username_string)
       ] in
-      (*
+      
       dump_and_die [any filename; any substitutions]
       >>= fun _ ->
-      *)
+      
       Renderer.server_side_render filename substitutions
 

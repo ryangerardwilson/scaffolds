@@ -120,6 +120,9 @@ let initiate_migrations () : bool Lwt.t =
 
             (* Then raise an exception so the caller's catch block can handle it. *)
             failwith ""
+
+
+
       end
     ) statements
   in

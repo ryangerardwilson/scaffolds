@@ -1,14 +1,10 @@
 (* lib/Landing.ml *)
 
-open Cohttp
-open Cohttp_lwt_unix
-open Lwt.Infix
-open Base64  (* Assume Base64 is used for encoding *)
 
 
 (* Handle landing page requests *)
 let handle_landing _conn req _body =
-  let username = Renderer.get_username_if_user_is_logged_in req in
+  let username = Authentication.get_username_if_user_is_logged_in req in
 
   let logged_in_as_html =
     match username with
