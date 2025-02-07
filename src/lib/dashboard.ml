@@ -1,6 +1,4 @@
 open Cohttp_lwt_unix
-open Lwt.Infix
-open Debugger  (* So we can call dump_and_die. *)
 
 let handle_dashboard _conn req _body =
   let username = Authentication.get_username_if_user_is_logged_in req in
@@ -8,17 +6,14 @@ let handle_dashboard _conn req _body =
 
   match username with
   | None ->
-      Server.respond_string ~status:`Forbidden
-        ~body:"No valid session or not logged in. \
-               Please <a href=\"/login\">log in</a>."
-        ()
+      (* Log response *)
+      let response_body =
+        "No valid session or not logged in. Please <a href=\"/login\">log in</a>." in
+      let input_list = [Debugger.any req] in
+      let output_list = [Debugger.any response_body] in
+      Lwt.async (fun () -> Debugger.log_event "/dashboard" input_list output_list);
+      Server.respond_string ~status:`Forbidden ~body:response_body ()
   | Some username_string ->
-      (* Immediately “dump and die,” short-circuiting this request. 
-         The rest of this function won't be reached. *)
-      (* 
-      dump_and_die "Something went wrong (or you just want to see data)!"
-      >>= fun _ ->
-      *) 
       (* The code below is never reached after dump_and_die. 
          Shown only for clarity if you removed the dump_and_die call. *)
       let filename = "dashboard.html" in
@@ -26,9 +21,15 @@ let handle_dashboard _conn req _body =
         ("{{APP_NAME}}", app_name);
         ("{{USERNAME}}", username_string)
       ] in
-      
+
+      (*      
       dump_and_die [any filename; any substitutions]
       >>= fun _ ->
-      
+      *)
+      (* Log response *)
+      let input_list = [Debugger.any req] in
+      let output_list = [Debugger.any filename; Debugger.any substitutions] in
+      Lwt.async (fun () -> Debugger.log_event "/dashboard => handle_dashboard" input_list output_list);
       Renderer.server_side_render filename substitutions
+
 

@@ -23,6 +23,9 @@ ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
     -I utils -I lib -w +33 lib/about.ml
 
 ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/signup.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
     -I utils -I lib -w +33 lib/login.ml
 
 ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
@@ -45,6 +48,7 @@ ocamlfind ocamlopt -thread -package "$PACKAGES" -linkpkg \
     utils/authentication.cmx \
     utils/debugger.cmx \
     lib/landing.cmx \
+    lib/signup.cmx \
     lib/about.cmx \
     lib/login.cmx \
     lib/logout.cmx \

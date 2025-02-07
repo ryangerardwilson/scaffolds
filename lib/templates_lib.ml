@@ -7,10 +7,14 @@ open Cohttp_lwt_unix
 let () = Dotenv.export ()
 let () = Random.self_init ()
 
-(* Example routes. *)
+(* List of routes for which logging is enabled *)
+let logged_routes = ["/"; "/about"; "/signup"; "/login"; "/logout"; "/dashboard"]
+
+(* Your existing routes *)
 let routes = [
   ("/", Landing.handle_landing);
   ("/about", About.handle_about);
+  ("/signup", Signup.handle_signup);
   ("/login", Login.handle_login);
   ("/logout", Logout.handle_logout);
   ("/dashboard", Dashboard.handle_dashboard);
@@ -25,21 +29,30 @@ let route conn req body =
          Assets.handle_assets conn req body
        else
          match List.find_opt (fun (p, _) -> p = uri_path) routes with
-         | Some (_, handler) -> handler conn req body
-         | None -> Server.respond_string ~status:`Not_found ~body:"Not Found" ()
+         | Some (_, handler) ->
+             (* For endpoints with logging enabled, capture the request body, then call handler and log the output. *)
+             if List.mem uri_path logged_routes then
+               Cohttp_lwt.Body.to_string body >>= fun req_body ->
+               let new_body = Cohttp_lwt.Body.of_string req_body in
+               handler conn req new_body >>= fun (resp, resp_body) ->
+               let status = Cohttp.Response.status resp in
+               let resp_summary = Printf.sprintf "HTTP %s" (Cohttp.Code.string_of_status status) in
+               (* Using intermediate variables to disambiguate the list literal *)
+               let req_list = [Debugger.any req_body] in
+               let out_list = [Debugger.any resp_summary] in
+               Lwt.async (fun () -> Debugger.log_event uri_path req_list out_list);
+               Lwt.return (resp, resp_body)
+             else
+               handler conn req body
+         | None ->
+             Server.respond_string ~status:`Not_found ~body:"Not Found" ()
     )
     (function
       | Debugger.DumpAndDie debug_msg ->
-          (* Return the debug content directly. *)
-          Server.respond_string
-            ~status:`OK
-            ~body:(debug_msg)
-            ()
+          Server.respond_string ~status:`OK ~body:debug_msg ()
       | ex ->
-          Server.respond_string
-            ~status:`Internal_server_error
-            ~body:("Unhandled exception: " ^ Printexc.to_string ex)
-            ()
+          Server.respond_string ~status:`Internal_server_error
+            ~body:("Unhandled exception: " ^ Printexc.to_string ex) ()
     )
 
 (* Retrieve environment variables. *)
@@ -51,12 +64,12 @@ let () =
   Lwt_main.run begin
     Migrations.initiate_migrations () >>= function
     | false ->
-      Printf.eprintf "[ERROR] Failed to run migrations, not starting server.\n%!";
-      Lwt.return_unit
+        Printf.eprintf "[ERROR] Failed to run migrations, not starting server.\n%!";
+        Lwt.return_unit
     | true ->
-      Printf.printf "[INFO] Running %s on port %d\n%!" app_name port;
-      let config = Server.make ~callback:route () in
-      Server.create ~mode:(`TCP (`Port port)) config
+        Printf.printf "[INFO] Running %s on port %d\n%!" app_name port;
+        let config = Server.make ~callback:route () in
+        Server.create ~mode:(`TCP (`Port port)) config
   end
 
 
@@ -115,6 +128,9 @@ ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
     -I utils -I lib -w +33 lib/about.ml
 
 ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/signup.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
     -I utils -I lib -w +33 lib/login.ml
 
 ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
@@ -137,6 +153,7 @@ ocamlfind ocamlopt -thread -package "$PACKAGES" -linkpkg \
     utils/authentication.cmx \
     utils/debugger.cmx \
     lib/landing.cmx \
+    lib/signup.cmx \
     lib/about.cmx \
     lib/login.cmx \
     lib/logout.cmx \
@@ -175,6 +192,17 @@ else
   echo "[INFO] Use the --run flag to compile and run the app automatically."
 fi
 
+
+|}
+
+let dir_dbs_dir_logs_file_schema_ext_sql = {|
+CREATE TABLE events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  endpoint TEXT NOT NULL,
+  data_received TEXT,
+  data_returned TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP  
+);
 
 |}
 
@@ -563,6 +591,112 @@ let dump_and_die (values : Obj.t list) =
     Cohttp_lwt.Body.to_string body >>= fun final_html ->
     Lwt.fail (DumpAndDie final_html)
 
+(* A helper to log events into your logs.db *)
+let log_event (endpoint : string) (data_received_list : Obj.t list) (data_returned_list : Obj.t list) : unit Lwt.t =
+  (* Nest all conversion helpers inside log_event *)
+
+  (* Reflection tag constants *)
+  let double_tag = 253 in
+  let string_tag = 252 in
+
+  let is_int_obj x = Obj.is_int x in
+
+  let is_empty_list x =
+    (Obj.tag x = 0) && (Obj.magic x = ([] : 'a list))
+  in
+
+  let is_nonempty_list x =
+    (Obj.tag x = 0) && (Obj.magic x <> ([] : 'a list))
+  in
+
+  let rec unroll_list (x : Obj.t) : Obj.t list =
+    let rec loop acc v =
+      if is_empty_list v then List.rev acc
+      else if is_nonempty_list v then
+        let hd = Obj.field v 0 in
+        let tl = Obj.field v 1 in
+        loop (hd :: acc) tl
+      else List.rev acc
+    in
+    loop [] x
+  in
+
+  let is_pair x =
+    (Obj.tag x = 0) && (Obj.size x = 2)
+  in
+
+  let extract_pair x =
+    (Obj.field x 0, Obj.field x 1)
+  in
+
+  let is_string_obj x =
+    Obj.tag x = string_tag
+  in
+
+  let is_pair_of_strings x =
+    if not (is_pair x) then false
+    else
+      let (l, r) = extract_pair x in
+      is_string_obj l && is_string_obj r
+  in
+
+  let rec item_to_yojson (x : Obj.t) : Yojson.Basic.t =
+    if is_int_obj x then
+      `Int (Obj.magic x)
+    else
+      let t = Obj.tag x in
+      if t = double_tag then
+        `Float (Obj.magic x)
+      else if t = string_tag then
+        `String (Obj.magic x)
+      else if is_empty_list x then
+        `List []
+      else if is_nonempty_list x then
+        let items = unroll_list x in
+        if List.for_all is_pair_of_strings items then
+          let mapped =
+            List.map (fun pair_obj ->
+              let (lk, rv) = extract_pair pair_obj in
+              `Assoc [ (Obj.magic lk, `String (Obj.magic rv)) ]
+            ) items
+          in
+          `List mapped
+        else
+          `List (List.map item_to_yojson items)
+      else if is_pair x then
+        let (left, right) = extract_pair x in
+        let left_json  = item_to_yojson left in
+        let right_json = item_to_yojson right in
+        (match left_json, right_json with
+         | `String s1, `String s2 -> `Assoc [ (s1, `String s2) ]
+         | _ -> `List [ left_json; right_json ])
+      else
+        `String "Unhandled/complex structure (using Obj)."
+  in
+
+  (* Convert a list of any values (wrapped as Obj.t) into a JSON string representation. *)
+  let convert_list_to_string (lst : Obj.t list) : string =
+    let json_list = `List (List.map item_to_yojson lst) in
+    Yojson.Basic.pretty_to_string json_list
+  in
+
+  (* Convert both data_received and data_returned lists to string representations *)
+  let data_received_str = convert_list_to_string data_received_list in
+  let data_returned_str = convert_list_to_string data_returned_list in
+
+  (* Log the event in the database *)
+  let db = Sqlite3.db_open "dbs/logs/logs.db" in
+  let sql = "INSERT INTO events (endpoint, data_received, data_returned) VALUES (?, ?, ?)" in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind_text stmt 1 endpoint);
+  ignore (Sqlite3.bind_text stmt 2 data_received_str);
+  ignore (Sqlite3.bind_text stmt 3 data_returned_str);
+  (match Sqlite3.step stmt with
+   | Sqlite3.Rc.DONE -> ()
+   | rc -> Printf.eprintf "Logging event error: %s\n" (Sqlite3.Rc.to_string rc));
+  ignore (Sqlite3.finalize stmt);
+  ignore (Sqlite3.db_close db);
+  Lwt.return_unit
 
 
 |}
@@ -592,7 +726,6 @@ open Sqlite3
         to automatically free up memory for inactive sessions.
 *)
 let session_store : (string, string) Hashtbl.t = Hashtbl.create 16
-
 
 (* Logs the user in *)
 let handle_auth (body_str : string) =
@@ -816,6 +949,108 @@ let handle_session_destruction (req : Cohttp.Request.t) : unit =
       | None -> ()
 
 
+
+(* Handles the signup logic.
+   Expects POST body with the fields "email", "password", and "confirm_password". *)
+let handle_signup (body_str : string) : (Cohttp.Header.t * Uri.t, string) result =
+  
+  (* Helper: open the database or fail. *)
+  let db_open_local path =
+    let db = db_open path in
+    match errcode db with
+    | Rc.OK -> db
+    | rc -> failwith ("Could not open DB: " ^ Rc.to_string rc)
+  in
+
+  (* Helper: decode percent-encoded URL strings. *)
+  let decode_url str =
+    let hex_to_char h = Char.chr (int_of_string ("0x" ^ h)) in
+    let len = String.length str in
+    let buf = Buffer.create len in
+    let rec decode i =
+      if i >= len then Buffer.contents buf else
+      match str.[i] with
+      | '%' when i + 2 < len ->
+          Buffer.add_char buf (hex_to_char (String.sub str (i + 1) 2));
+          decode (i + 3)
+      | '+' ->
+          Buffer.add_char buf ' ';
+          decode (i + 1)
+      | c ->
+          Buffer.add_char buf c;
+          decode (i + 1)
+    in
+    decode 0
+  in
+
+  (* Helper: parse "key=value" pairs from an x-www-form-urlencoded string *)
+  let parse_post_body form_body =
+    let parts = Str.split (Str.regexp_string "&") form_body in
+    List.map (fun part ->
+      match Str.bounded_split (Str.regexp_string "=") part 2 with
+      | [k; v] -> (decode_url k, decode_url v)
+      | _ -> ("", "")
+    ) parts
+  in
+
+  (* Helper: create a random session for a user *)
+  let create_session username =
+    let rand_bytes = Bytes.create 16 in
+    for i = 0 to 15 do
+      Bytes.set rand_bytes i (char_of_int (Random.int 256))
+    done;
+    let session_id = Base64.encode_exn (Bytes.to_string rand_bytes) in
+    Hashtbl.replace session_store session_id username;
+    session_id
+  in
+
+  let form_data = parse_post_body body_str in
+  let email_opt = List.assoc_opt "email" form_data in
+  let password_opt = List.assoc_opt "password" form_data in
+  let confirm_opt = List.assoc_opt "confirm_password" form_data in
+  
+  match (email_opt, password_opt, confirm_opt) with
+  | (Some email, Some password, Some confirm_password) ->
+      if password <> confirm_password then
+        Result.Error "Passwords do not match."
+      else
+        let db_path = "dbs/auth/auth.db" in
+        let db = db_open_local db_path in
+        (* 1. Check if a user with this email already exists *)
+        let stmt_check = prepare db "SELECT email FROM users WHERE email = ?" in
+        ignore (bind_text stmt_check 1 email);
+        let exists =
+          match step stmt_check with
+          | Rc.ROW -> true
+          | Rc.DONE -> false
+          | rc -> failwith ("Error stepping statement: " ^ Rc.to_string rc)
+        in
+        ignore (finalize stmt_check);
+        if exists then (
+          ignore (db_close db);
+          Result.Error "User already exists."
+        ) else (
+          (* 2. Insert the new user record *)
+          let stmt_insert = prepare db "INSERT INTO users (email, password) VALUES (?, ?)" in
+          ignore (bind_text stmt_insert 1 email);
+          ignore (bind_text stmt_insert 2 password);
+          (match step stmt_insert with
+           | Rc.DONE -> ()
+           | rc -> failwith ("Error inserting new user: " ^ Rc.to_string rc));
+          ignore (finalize stmt_insert);
+          ignore (db_close db);
+          (* 3. Create a session and redirect to the dashboard *)
+          let session_id = create_session email in
+          let headers =
+            Cohttp.Header.init ()
+            |> fun h -> Cohttp.Header.add h "Set-Cookie" ("sessionid=" ^ session_id ^ "; Path=/")
+          in
+          Result.Ok (headers, Uri.of_string "/dashboard")
+        )
+  | _ ->
+      Result.Error "Missing required signup fields."
+
+
 |}
 
 let dir_utils_file_renderer_ext_ml = {|
@@ -850,6 +1085,38 @@ let server_side_render (filename : string)
       ~body:"File not found"
       ()
 
+
+|}
+
+let dir_resources_file_signup_ext_html = {|
+<html>
+  <head>
+    <title>{{APP_NAME}} / Signup</title>
+  </head>
+  <body>
+    <h2>Signup</h2>
+    <!-- Replace with an error message if needed -->
+    {{ERROR_MESSAGE}}
+    <form method="POST" action="/signup">
+      <label>
+        Email:
+        <input type="email" name="email" required />
+      </label>
+      <br />
+      <label>
+        Password:
+        <input type="password" name="password" required />
+      </label>
+      <br />
+      <label>
+        Confirm Password:
+        <input type="password" name="confirm_password" required />
+      </label>
+      <br />
+      <input type="submit" value="Signup" />
+    </form>
+  </body>
+</html>
 
 |}
 
@@ -975,42 +1242,40 @@ let dir_lib_file_login_ext_ml = {|
 open Cohttp_lwt_unix
 open Lwt.Infix
 
-
 let handle_login _conn req body =
   let app_name = Sys.getenv "APP_NAME" in
-  let substitutions = [
-    ("{{APP_NAME}}", app_name);
-    ("{{ERROR_MESSAGE}}", ""); 
-  ] in
 
   match Request.meth req with
   | `GET ->
-      Renderer.server_side_render "login.html" substitutions >>= fun (response, body) ->
       Cohttp_lwt.Body.to_string body >>= fun body_str ->
+      let filename = "login.html" in
+      let input_list = [Debugger.any req] in
+      let output_list = [Debugger.any filename] in
+      Lwt.async (fun () -> Debugger.log_event "/login => handle_login => GET" input_list output_list);
       Server.respond_string ~status:`OK ~body:body_str ()
-
   | `POST ->
       Cohttp_lwt.Body.to_string body >>= fun body_str ->
       let auth_result = Authentication.handle_auth body_str in
       begin match auth_result with
       | Ok (headers, uri) ->
+          let input_list = [Debugger.any req; Debugger.any body_str] in
+          let output_list = [Debugger.any (Printf.sprintf "Redirecting to %s" (Uri.to_string uri))] in
+          Lwt.async (fun () -> Debugger.log_event "/login => handle_login => POST" input_list output_list);
           Server.respond_redirect ~headers ~uri ()
       | Error error_msg ->
+          let filename = "login.html" in
           let substitutions = [
             ("{{APP_NAME}}", app_name);
-            ("{{ERROR_MESSAGE}}", error_msg); (* Default to no error message *)
+            ("{{ERROR_MESSAGE}}", error_msg)
           ] in
-
-
-          let error_substitutions = substitutions @ [("{{ERROR_MESSAGE}}", "<p style='color:red;'>" ^ error_msg ^ "</p>")] in
-          Renderer.server_side_render "login.html" error_substitutions >>= fun (response, body) ->
-          Cohttp_lwt.Body.to_string body >>= fun body_str ->
-          Server.respond_string ~status:`OK ~body:body_str ()
+          let input_list = [Debugger.any req] in
+          let output_list = [Debugger.any filename; Debugger.any substitutions] in
+          Lwt.async (fun () -> Debugger.log_event "/login => handle_login => POST => Error" input_list output_list);
+          Renderer.server_side_render filename substitutions
       end
 
   | _ ->
-      Server.respond_string ~status:`Method_not_allowed
-        ~body:"Method not allowed" ()
+      Server.respond_string ~status:`Method_not_allowed ~body:"Method not allowed" ()
 
 
 |}
@@ -1018,12 +1283,67 @@ let handle_login _conn req body =
 let dir_lib_file_logout_ext_ml = {|
 open Cohttp_lwt_unix
 
-(* Handler for /logout *)
 let handle_logout _conn req _body =
   (* Destroy the session associated with the request *)
   Authentication.handle_session_destruction req;
-  (* Redirect them to landing page ("/") or wherever you prefer *)
+  (* Prepare output string for logging *)
+  let output = "Redirecting to /" in
+  (* Prepare the logging input and output lists *)
+  let input_list = [Debugger.any req] in
+  let output_list = [Debugger.any output] in
+  Lwt.async (fun () -> Debugger.log_event "/logout => handle_logout" input_list output_list);
+  (* Redirect to landing page ("/") *)
   Server.respond_redirect ~uri:(Uri.of_string "/") ()
+
+
+|}
+
+let dir_lib_file_signup_ext_ml = {|
+open Cohttp_lwt_unix
+open Lwt.Infix
+
+let handle_signup _conn req body =
+  let app_name = Sys.getenv "APP_NAME" in
+  let base_substitutions = [
+    ("{{APP_NAME}}", app_name);
+    ("{{ERROR_MESSAGE}}", "");
+  ] in
+
+  match Request.meth req with
+  | `GET ->
+      Renderer.server_side_render "signup.html" base_substitutions >>= fun (response, render_body) ->
+      Cohttp_lwt.Body.to_string render_body >>= fun body_str ->
+      let input_list = [Debugger.any req] in
+      let output_list = [Debugger.any body_str] in
+      Lwt.async (fun () -> Debugger.log_event "/signup => handle_signup => GET" input_list output_list);
+      Server.respond_string ~status:`OK ~body:body_str ()
+
+  | `POST ->
+      Cohttp_lwt.Body.to_string body >>= fun body_str ->
+      (match Authentication.handle_signup body_str with
+       | Result.Ok (headers, uri) ->
+           let redirect_msg = Printf.sprintf "Redirecting to %s" (Uri.to_string uri) in
+           let input_list = [Debugger.any req; Debugger.any body_str] in
+           let output_list = [Debugger.any redirect_msg] in
+           Lwt.async (fun () -> Debugger.log_event "/signup => handle_signup => POST" input_list output_list);
+           Server.respond_redirect ~headers ~uri ()
+       | Result.Error error_msg ->
+           let error_substitutions = [
+             ("{{APP_NAME}}", app_name);
+             ("{{ERROR_MESSAGE}}", "<p style='color:red;'>" ^ error_msg ^ "</p>");
+           ] in
+           Renderer.server_side_render "signup.html" error_substitutions >>= fun (response, render_body) ->
+           Cohttp_lwt.Body.to_string render_body >>= fun rendered_body ->
+           let input_list = [Debugger.any req; Debugger.any body_str] in
+           let output_list = [Debugger.any rendered_body] in
+           Lwt.async (fun () -> Debugger.log_event "/signup => handle_signup => POST => Error" input_list output_list);
+           Server.respond_string ~status:`OK ~body:rendered_body ()
+      )
+  | _ ->
+      let input_list = [Debugger.any req] in
+      let output_list = [Debugger.any "Method not allowed"] in
+      Lwt.async (fun () -> Debugger.log_event "/signup => handle_signup => METHOD_NOT_ALLOWED" input_list output_list);
+      Server.respond_string ~status:`Method_not_allowed ~body:"Method not allowed" ()
 
 
 |}
@@ -1045,11 +1365,11 @@ let handle_about _conn req _body =
     | Some _ ->
       "<p><a href=\"/dashboard\">Go to Dashboard</a> | <a href=\"/logout\">Logout</a></p>"
     | None ->
-      "<p><a href=\"/login\">Login</a> | <a href=\"/\">Landing</a></p>"
+      "<p><a href=\"/signup\">Sign Up</a> | <a href=\"/login\">Login</a> | <a href=\"/\">Landing</a></p>"
   in
 
   let app_name = Sys.getenv "APP_NAME" in
-
+  let filename = "about.html" in
   let substitutions = [
     ("{{APP_NAME}}",app_name);
     ("{{PAGE_TITLE}}", "About Page 777");
@@ -1058,7 +1378,11 @@ let handle_about _conn req _body =
     ("{{LINK_BLOCK}}", link_block_html);
   ] in
 
-  Renderer.server_side_render "about.html" substitutions
+  let input_list = [Debugger.any req] in
+  let output_list = [Debugger.any filename; Debugger.any substitutions] in
+  Lwt.async (fun () -> Debugger.log_event "/about => handle_about" input_list output_list);
+
+  Renderer.server_side_render filename substitutions
 
 
 |}
@@ -1117,8 +1441,6 @@ let handle_assets conn req _body =
 
 let dir_lib_file_dashboard_ext_ml = {|
 open Cohttp_lwt_unix
-open Lwt.Infix
-open Debugger  (* So we can call dump_and_die. *)
 
 let handle_dashboard _conn req _body =
   let username = Authentication.get_username_if_user_is_logged_in req in
@@ -1126,17 +1448,14 @@ let handle_dashboard _conn req _body =
 
   match username with
   | None ->
-      Server.respond_string ~status:`Forbidden
-        ~body:"No valid session or not logged in. \
-               Please <a href=\"/login\">log in</a>."
-        ()
+      (* Log response *)
+      let response_body =
+        "No valid session or not logged in. Please <a href=\"/login\">log in</a>." in
+      let input_list = [Debugger.any req] in
+      let output_list = [Debugger.any response_body] in
+      Lwt.async (fun () -> Debugger.log_event "/dashboard" input_list output_list);
+      Server.respond_string ~status:`Forbidden ~body:response_body ()
   | Some username_string ->
-      (* Immediately “dump and die,” short-circuiting this request. 
-         The rest of this function won't be reached. *)
-      (* 
-      dump_and_die "Something went wrong (or you just want to see data)!"
-      >>= fun _ ->
-      *) 
       (* The code below is never reached after dump_and_die. 
          Shown only for clarity if you removed the dump_and_die call. *)
       let filename = "dashboard.html" in
@@ -1144,11 +1463,17 @@ let handle_dashboard _conn req _body =
         ("{{APP_NAME}}", app_name);
         ("{{USERNAME}}", username_string)
       ] in
-      
+
+      (*      
       dump_and_die [any filename; any substitutions]
       >>= fun _ ->
-      
+      *)
+      (* Log response *)
+      let input_list = [Debugger.any req] in
+      let output_list = [Debugger.any filename; Debugger.any substitutions] in
+      Lwt.async (fun () -> Debugger.log_event "/dashboard => handle_dashboard" input_list output_list);
       Renderer.server_side_render filename substitutions
+
 
 
 |}
@@ -1173,9 +1498,10 @@ let handle_landing _conn req _body =
     | Some _ ->
       "<p><a href=\"/dashboard\">Go to Dashboard</a> | <a href=\"/about\">About</a> | <a href=\"/logout\">Logout</a></p>"
     | None ->
-      "<p><a href=\"/login\">Login</a> | <a href=\"/about\">About</a></p>"
+      "<p><a href=\"/signup\">Sign Up</a> | <a href=\"/login\">Login</a> | <a href=\"/about\">About</a></p>"
   in
 
+  let filename = "landing.html" in
   let app_name = Sys.getenv "APP_NAME" in
 
   let substitutions = [
@@ -1184,7 +1510,11 @@ let handle_landing _conn req _body =
     ("{{LINK_BLOCK}}", link_block_html);
   ] in
 
-  Renderer.server_side_render "landing.html" substitutions
+  let input_list = [Debugger.any req] in
+  let output_list = [Debugger.any filename; Debugger.any substitutions] in
+  Lwt.async (fun () -> Debugger.log_event "/ => handle_landing" input_list output_list);
+
+  Renderer.server_side_render filename substitutions
 
 
 |}

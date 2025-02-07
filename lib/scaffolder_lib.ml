@@ -36,6 +36,9 @@ let scaffold target_dir =
 
   write_file (full_path "compiler") Templates_lib.file_compiler;
 
+  ensure_full_path (full_path "dbs/logs");
+  write_file (full_path "dbs/logs/schema.sql") Templates_lib.dir_dbs_dir_logs_file_schema_ext_sql;
+
   ensure_full_path (full_path "dbs/auth");
   write_file (full_path "dbs/auth/schema.sql") Templates_lib.dir_dbs_dir_auth_file_schema_ext_sql;
 
@@ -50,6 +53,9 @@ let scaffold target_dir =
 
   ensure_full_path (full_path "utils");
   write_file (full_path "utils/renderer.ml") Templates_lib.dir_utils_file_renderer_ext_ml;
+
+  ensure_full_path (full_path "resources");
+  write_file (full_path "resources/signup.html") Templates_lib.dir_resources_file_signup_ext_html;
 
   ensure_full_path (full_path "resources");
   write_file (full_path "resources/debugger.html") Templates_lib.dir_resources_file_debugger_ext_html;
@@ -74,6 +80,9 @@ let scaffold target_dir =
 
   ensure_full_path (full_path "lib");
   write_file (full_path "lib/logout.ml") Templates_lib.dir_lib_file_logout_ext_ml;
+
+  ensure_full_path (full_path "lib");
+  write_file (full_path "lib/signup.ml") Templates_lib.dir_lib_file_signup_ext_ml;
 
   ensure_full_path (full_path "lib");
   write_file (full_path "lib/about.ml") Templates_lib.dir_lib_file_about_ext_ml;

@@ -140,4 +140,110 @@ let dump_and_die (values : Obj.t list) =
     Cohttp_lwt.Body.to_string body >>= fun final_html ->
     Lwt.fail (DumpAndDie final_html)
 
+(* A helper to log events into your logs.db *)
+let log_event (endpoint : string) (data_received_list : Obj.t list) (data_returned_list : Obj.t list) : unit Lwt.t =
+  (* Nest all conversion helpers inside log_event *)
+
+  (* Reflection tag constants *)
+  let double_tag = 253 in
+  let string_tag = 252 in
+
+  let is_int_obj x = Obj.is_int x in
+
+  let is_empty_list x =
+    (Obj.tag x = 0) && (Obj.magic x = ([] : 'a list))
+  in
+
+  let is_nonempty_list x =
+    (Obj.tag x = 0) && (Obj.magic x <> ([] : 'a list))
+  in
+
+  let rec unroll_list (x : Obj.t) : Obj.t list =
+    let rec loop acc v =
+      if is_empty_list v then List.rev acc
+      else if is_nonempty_list v then
+        let hd = Obj.field v 0 in
+        let tl = Obj.field v 1 in
+        loop (hd :: acc) tl
+      else List.rev acc
+    in
+    loop [] x
+  in
+
+  let is_pair x =
+    (Obj.tag x = 0) && (Obj.size x = 2)
+  in
+
+  let extract_pair x =
+    (Obj.field x 0, Obj.field x 1)
+  in
+
+  let is_string_obj x =
+    Obj.tag x = string_tag
+  in
+
+  let is_pair_of_strings x =
+    if not (is_pair x) then false
+    else
+      let (l, r) = extract_pair x in
+      is_string_obj l && is_string_obj r
+  in
+
+  let rec item_to_yojson (x : Obj.t) : Yojson.Basic.t =
+    if is_int_obj x then
+      `Int (Obj.magic x)
+    else
+      let t = Obj.tag x in
+      if t = double_tag then
+        `Float (Obj.magic x)
+      else if t = string_tag then
+        `String (Obj.magic x)
+      else if is_empty_list x then
+        `List []
+      else if is_nonempty_list x then
+        let items = unroll_list x in
+        if List.for_all is_pair_of_strings items then
+          let mapped =
+            List.map (fun pair_obj ->
+              let (lk, rv) = extract_pair pair_obj in
+              `Assoc [ (Obj.magic lk, `String (Obj.magic rv)) ]
+            ) items
+          in
+          `List mapped
+        else
+          `List (List.map item_to_yojson items)
+      else if is_pair x then
+        let (left, right) = extract_pair x in
+        let left_json  = item_to_yojson left in
+        let right_json = item_to_yojson right in
+        (match left_json, right_json with
+         | `String s1, `String s2 -> `Assoc [ (s1, `String s2) ]
+         | _ -> `List [ left_json; right_json ])
+      else
+        `String "Unhandled/complex structure (using Obj)."
+  in
+
+  (* Convert a list of any values (wrapped as Obj.t) into a JSON string representation. *)
+  let convert_list_to_string (lst : Obj.t list) : string =
+    let json_list = `List (List.map item_to_yojson lst) in
+    Yojson.Basic.pretty_to_string json_list
+  in
+
+  (* Convert both data_received and data_returned lists to string representations *)
+  let data_received_str = convert_list_to_string data_received_list in
+  let data_returned_str = convert_list_to_string data_returned_list in
+
+  (* Log the event in the database *)
+  let db = Sqlite3.db_open "dbs/logs/logs.db" in
+  let sql = "INSERT INTO events (endpoint, data_received, data_returned) VALUES (?, ?, ?)" in
+  let stmt = Sqlite3.prepare db sql in
+  ignore (Sqlite3.bind_text stmt 1 endpoint);
+  ignore (Sqlite3.bind_text stmt 2 data_received_str);
+  ignore (Sqlite3.bind_text stmt 3 data_returned_str);
+  (match Sqlite3.step stmt with
+   | Sqlite3.Rc.DONE -> ()
+   | rc -> Printf.eprintf "Logging event error: %s\n" (Sqlite3.Rc.to_string rc));
+  ignore (Sqlite3.finalize stmt);
+  ignore (Sqlite3.db_close db);
+  Lwt.return_unit
 
