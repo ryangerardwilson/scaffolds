@@ -1,8 +1,5 @@
 open Cohttp
 open Cohttp_lwt_unix
-open Sqlite3
-
-
 
 (* 
     Global session storage means than for x number users, x session 
@@ -23,129 +20,174 @@ open Sqlite3
 *)
 let session_store : (string, string) Hashtbl.t = Hashtbl.create 16
 
-(* Logs the user in *)
-let handle_auth (body_str : string) =
+(* Handles the signup logic.
+   Expects POST body with the fields "email", "password", and "confirm_password". *)
+let handle_signup (body_str : string) : (Cohttp.Header.t * Uri.t, string) result =
 
-  (* 1. Helper to open the DB using errcode. *)
-  let db_open_local (path : string) =
-    (*log "Attempting to open database at path: %s" path;*)
-    let db = db_open path in
-    match errcode db with
-    | Rc.OK ->
-        (*log "Database opened successfully.";*)
-        db
-    | rc ->
-        (*log "Failed to open database with error: %s" (Rc.to_string rc);*)
-        failwith ("Could not open DB: " ^ Rc.to_string rc)
-  in
-
-  (* 2. Parse "key=value" pairs from x-www-form-urlencoded. *)
+  (* Helper: decode percent-encoded URL strings. *)
   let decode_url str =
     let hex_to_char h = Char.chr (int_of_string ("0x" ^ h)) in
     let len = String.length str in
     let buf = Buffer.create len in
     let rec decode i =
-      if i >= len then
-        Buffer.contents buf
-      else
-        match str.[i] with
-        | '%' when i + 2 < len ->
-            Buffer.add_char buf (hex_to_char (String.sub str (i + 1) 2));
-            decode (i + 3)
-        | '+' ->
-            Buffer.add_char buf ' ';
-            decode (i + 1)
-        | c ->
-            Buffer.add_char buf c;
-            decode (i + 1)
+      if i >= len then Buffer.contents buf else
+      match str.[i] with
+      | '%' when i + 2 < len ->
+          Buffer.add_char buf (hex_to_char (String.sub str (i + 1) 2));
+          decode (i + 3)
+      | '+' ->
+          Buffer.add_char buf ' ';
+          decode (i + 1)
+      | c ->
+          Buffer.add_char buf c;
+          decode (i + 1)
     in
     decode 0
   in
 
-  (* 3. Function to parse "key=value" pairs from x-www-form-urlencoded string *)
+  (* Helper: parse "key=value" pairs from an x-www-form-urlencoded string *)
   let parse_post_body form_body =
-    (*log "Parsing form body: %s" form_body;*)
     let parts = Str.split (Str.regexp_string "&") form_body in
     List.map (fun part ->
       match Str.bounded_split (Str.regexp_string "=") part 2 with
-      | [k; v] ->
-          let decoded_key = decode_url k in
-          let decoded_value = decode_url v in
-          (decoded_key, decoded_value)
+      | [k; v] -> (decode_url k, decode_url v)
       | _ -> ("", "")
     ) parts
   in
 
-  (* 4. A helper to create a random session. *)
-  let create_session (username : string) : string =
-    (*log "Creating session for user: %s" username;*)
+  (* Helper: create a random session for a user *)
+  let create_session username =
     let rand_bytes = Bytes.create 16 in
     for i = 0 to 15 do
       Bytes.set rand_bytes i (char_of_int (Random.int 256))
     done;
     let session_id = Base64.encode_exn (Bytes.to_string rand_bytes) in
     Hashtbl.replace session_store session_id username;
-    (*log "Session created with ID: %s" session_id;*)
     session_id
   in
 
-  (* 5. Helper: convert Data.t to string option. *)
-  let data_to_string_opt (d : Data.t) : string option =
-    match d with
-    | Data.NULL -> None
-    | Data.TEXT txt -> Some txt
+  let form_data = parse_post_body body_str in
+  let email_opt = List.assoc_opt "email" form_data in
+  let password_opt = List.assoc_opt "password" form_data in
+  let confirm_opt = List.assoc_opt "confirm_password" form_data in
+  
+  match (email_opt, password_opt, confirm_opt) with
+  | (Some email, Some password, Some confirm_password) ->
+      if password <> confirm_password then
+        Result.Error "Passwords do not match."
+      else
+        (* First check if the user already exists. Using basic mode for simplicity *)
+        let check_result = 
+          Database.query_to_df "auth" "users" (Printf.sprintf "SELECT email FROM users WHERE email = '%s'" email) "basic"
+        in
+        let exists =
+          match check_result with
+          | Basic_df bdf -> bdf.rows <> []
+          | Owl_df odf -> Owl_dataframe.shape odf |> fun (m, _) -> m > 0
+        in
+        if exists then
+          Result.Error "User already exists."
+        else (
+          (* Insert the new user via the new insert method.
+             Details must be provided as a list of (column, value) pairs. *)
+          Database.insert "auth" "users" [("email", email); ("password", password)];
+          
+          (* Create a session and set a redirect header *)
+          let session_id = create_session email in
+          let headers = Cohttp.Header.add (Cohttp.Header.init ()) "Set-Cookie" ("sessionid=" ^ session_id ^ "; Path=/") in
+          Result.Ok (headers, Uri.of_string "/dashboard")
+        )
+  | _ ->
+      Result.Error "Missing required signup fields."
+
+
+(* Logs the user in *)
+let handle_auth (body_str : string) : (Cohttp.Header.t * Uri.t, string) result =
+  (* Helper: decode percent-encoded URL strings *)
+  let decode_url str =
+    let hex_to_char h = Char.chr (int_of_string ("0x" ^ h)) in
+    let len = String.length str in
+    let buf = Buffer.create len in
+    let rec decode i =
+      if i >= len then Buffer.contents buf
+      else match str.[i] with
+           | '%' when i + 2 < len ->
+               Buffer.add_char buf (hex_to_char (String.sub str (i + 1) 2));
+               decode (i + 3)
+           | '+' ->
+               Buffer.add_char buf ' ';
+               decode (i + 1)
+           | c ->
+               Buffer.add_char buf c;
+               decode (i + 1)
+    in
+    decode 0
+  in
+
+  (* Helper: parse x-www-form-urlencoded key=value pairs *)
+  let parse_post_body form_body =
+    let parts = Str.split (Str.regexp_string "&") form_body in
+    List.map (fun part ->
+      match Str.bounded_split (Str.regexp_string "=") part 2 with
+      | [k; v] -> (decode_url k, decode_url v)
+      | _ -> ("", "")
+    ) parts
+  in
+
+  (* Helper: create a random session for a user *)
+  let create_session username =
+    let rand_bytes = Bytes.create 16 in
+    for i = 0 to 15 do
+      Bytes.set rand_bytes i (char_of_int (Random.int 256))
+    done;
+    let session_id = Base64.encode_exn (Bytes.to_string rand_bytes) in
+    Hashtbl.replace session_store session_id username;
+    session_id
+  in
+
+  (* Helper: Convert a basic Database.cell to a string option *)
+  let cell_to_text_opt cell =
+    match cell with
+    | Database.Text s -> Some s
     | _ -> None
   in
 
-  (* 6. Open the database. *)
-  let db_path = "dbs/auth/auth.db" in
-  let db = db_open_local db_path in
-
-  (* 7. Parse the form data. Keep them as string option. *)
+  (* Parse the POST body *)
   let form_data = parse_post_body body_str in
   let email_submitted = List.assoc_opt "email" form_data in
   let password_submitted = List.assoc_opt "password" form_data in
 
-  (* 8. Prepare and bind for the query. *)
-  let stmt = prepare db "SELECT email, password FROM users WHERE email = ?" in
-  (match email_submitted with
-   | Some e ->
-       ignore (bind_text stmt 1 e)
-   | None ->
-       ignore (bind stmt 1 Data.NULL));
-
-  (* 9. maybe_user is a string option: Some db_email if the password matches, None otherwise. *)
-  let maybe_user =
-    match step stmt with
-    | Rc.ROW ->
-        let db_email = data_to_string_opt (column stmt 0) in
-        let db_password = data_to_string_opt (column stmt 1) in
-        if db_password = password_submitted then
-          db_email
-        else
-          None
-    | Rc.DONE -> None
-    | rc -> failwith ("Error stepping statement: " ^ Rc.to_string rc)
-  in
-
-  ignore (finalize stmt);
-  ignore (db_close db);
-
-  (* 10. If maybe_user is Some e, create a session; otherwise return an error. *)
-  match maybe_user with
-  | Some user_email ->
-      let session_id = create_session user_email in
-      let headers =
-        Cohttp.Header.init ()
-        |> fun h -> Cohttp.Header.add h "Set-Cookie"
-          ("sessionid=" ^ session_id ^ "; Path=/")
+  match (email_submitted, password_submitted) with
+  | (Some email, Some password) ->
+      (* Build the SQL query. (In production consider parameter binding to avoid injection) *)
+      let sql = Printf.sprintf "SELECT email, password FROM users WHERE email = '%s'" email in
+      let query_result = Database.query_to_df "auth" "users" sql "basic" in
+      let maybe_user =
+        match query_result with
+        | Database.Basic_df bdf ->
+            (match bdf.rows with
+             | [row] ->
+                 (match row with
+                  | [email_cell; password_cell] ->
+                      let db_email_opt = cell_to_text_opt email_cell in
+                      let db_password_opt = cell_to_text_opt password_cell in
+                      if db_password_opt = Some password then db_email_opt else None
+                  | _ -> None)
+             | _ -> None)
+        | _ -> None
       in
-      Ok (headers, Uri.of_string "/dashboard")
-  | None ->
-      Error "Invalid credentials. Please try again."
-
-
-
+      (match maybe_user with
+       | Some user_email ->
+           let session_id = create_session user_email in
+           let headers =
+             Cohttp.Header.add (Cohttp.Header.init ())
+               "Set-Cookie" ("sessionid=" ^ session_id ^ "; Path=/")
+           in
+           Ok (headers, Uri.of_string "/dashboard")
+       | None ->
+           Error "Invalid credentials. Please try again.")
+  | _ ->
+      Error "Missing credentials."
 
 (* Determine if a user is logged in by checking the session *)
 let get_username_if_user_is_logged_in req =
@@ -212,11 +254,6 @@ let handle_cookie (req : Request.t) : string option =
     | Some sid ->
       get_username_for_session sid
 
-
-
-
-
-
 (* Removes an existing session from the store by session ID in the request. *)
 let handle_session_destruction (req : Cohttp.Request.t) : unit =
   let extract_session_id (cookie_str : string) : string option =
@@ -246,103 +283,4 @@ let handle_session_destruction (req : Cohttp.Request.t) : unit =
 
 
 
-(* Handles the signup logic.
-   Expects POST body with the fields "email", "password", and "confirm_password". *)
-let handle_signup (body_str : string) : (Cohttp.Header.t * Uri.t, string) result =
-  
-  (* Helper: open the database or fail. *)
-  let db_open_local path =
-    let db = db_open path in
-    match errcode db with
-    | Rc.OK -> db
-    | rc -> failwith ("Could not open DB: " ^ Rc.to_string rc)
-  in
-
-  (* Helper: decode percent-encoded URL strings. *)
-  let decode_url str =
-    let hex_to_char h = Char.chr (int_of_string ("0x" ^ h)) in
-    let len = String.length str in
-    let buf = Buffer.create len in
-    let rec decode i =
-      if i >= len then Buffer.contents buf else
-      match str.[i] with
-      | '%' when i + 2 < len ->
-          Buffer.add_char buf (hex_to_char (String.sub str (i + 1) 2));
-          decode (i + 3)
-      | '+' ->
-          Buffer.add_char buf ' ';
-          decode (i + 1)
-      | c ->
-          Buffer.add_char buf c;
-          decode (i + 1)
-    in
-    decode 0
-  in
-
-  (* Helper: parse "key=value" pairs from an x-www-form-urlencoded string *)
-  let parse_post_body form_body =
-    let parts = Str.split (Str.regexp_string "&") form_body in
-    List.map (fun part ->
-      match Str.bounded_split (Str.regexp_string "=") part 2 with
-      | [k; v] -> (decode_url k, decode_url v)
-      | _ -> ("", "")
-    ) parts
-  in
-
-  (* Helper: create a random session for a user *)
-  let create_session username =
-    let rand_bytes = Bytes.create 16 in
-    for i = 0 to 15 do
-      Bytes.set rand_bytes i (char_of_int (Random.int 256))
-    done;
-    let session_id = Base64.encode_exn (Bytes.to_string rand_bytes) in
-    Hashtbl.replace session_store session_id username;
-    session_id
-  in
-
-  let form_data = parse_post_body body_str in
-  let email_opt = List.assoc_opt "email" form_data in
-  let password_opt = List.assoc_opt "password" form_data in
-  let confirm_opt = List.assoc_opt "confirm_password" form_data in
-  
-  match (email_opt, password_opt, confirm_opt) with
-  | (Some email, Some password, Some confirm_password) ->
-      if password <> confirm_password then
-        Result.Error "Passwords do not match."
-      else
-        let db_path = "dbs/auth/auth.db" in
-        let db = db_open_local db_path in
-        (* 1. Check if a user with this email already exists *)
-        let stmt_check = prepare db "SELECT email FROM users WHERE email = ?" in
-        ignore (bind_text stmt_check 1 email);
-        let exists =
-          match step stmt_check with
-          | Rc.ROW -> true
-          | Rc.DONE -> false
-          | rc -> failwith ("Error stepping statement: " ^ Rc.to_string rc)
-        in
-        ignore (finalize stmt_check);
-        if exists then (
-          ignore (db_close db);
-          Result.Error "User already exists."
-        ) else (
-          (* 2. Insert the new user record *)
-          let stmt_insert = prepare db "INSERT INTO users (email, password) VALUES (?, ?)" in
-          ignore (bind_text stmt_insert 1 email);
-          ignore (bind_text stmt_insert 2 password);
-          (match step stmt_insert with
-           | Rc.DONE -> ()
-           | rc -> failwith ("Error inserting new user: " ^ Rc.to_string rc));
-          ignore (finalize stmt_insert);
-          ignore (db_close db);
-          (* 3. Create a session and redirect to the dashboard *)
-          let session_id = create_session email in
-          let headers =
-            Cohttp.Header.init ()
-            |> fun h -> Cohttp.Header.add h "Set-Cookie" ("sessionid=" ^ session_id ^ "; Path=/")
-          in
-          Result.Ok (headers, Uri.of_string "/dashboard")
-        )
-  | _ ->
-      Result.Error "Missing required signup fields."
 

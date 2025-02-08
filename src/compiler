@@ -1,9 +1,12 @@
 #!/bin/bash
 
 # Define all packages in one place as a comma-separated list.
-PACKAGES="cohttp-lwt-unix,dotenv,str,base64,sqlite3,yojson"
+PACKAGES="cohttp-lwt-unix,dotenv,str,base64,sqlite3,yojson,owl"
 
 # Step 1: Compile modules (native code)
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/database.ml
+
 ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
     -I utils -I lib -w +33 utils/migrations.ml
 
@@ -43,6 +46,7 @@ ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
 # Step 2: Link modules (native code)
 ocamlfind ocamlopt -thread -package "$PACKAGES" -linkpkg \
     -o app \
+    utils/database.cmx \
     utils/migrations.cmx \
     utils/renderer.cmx \
     utils/authentication.cmx \

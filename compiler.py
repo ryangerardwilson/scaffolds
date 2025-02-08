@@ -16,6 +16,102 @@ OCAML_PACKAGES = ""  # A comma separated string of packages injected into the co
 ###############################################################################
 
 
+def get_versions(MAJOR_RELEASE_NUMBER=None):
+    """
+    Retrieves the current version number from the server and computes a new version.
+
+    Steps:
+      1) Reads ~/.rgwfuncsrc to obtain SSH credentials for the preset 'icdattcwsm'.
+      2) SSH into the server and list the .deb files in:
+         /home/rgw/Apps/frontend-sites/files.ryangerardwilson.com/scaffolds/debian/dists/stable/main/binary-amd64
+      3) Takes the last .deb filename (expected to be of the form:
+         scaffolds_<MAJOR>.<MINOR>.<PATCH>-<REV>.deb) and extracts the version string.
+      4) If MAJOR_RELEASE_NUMBER is None (or matches the current major):
+           - Returns a new version having the same MAJOR and MINOR with PATCH incremented by 1
+         Otherwise:
+           - Returns a new version of the form: {MAJOR_RELEASE_NUMBER}.0.1-1
+    Returns:
+         (current_version, new_version)
+         where current_version is in the form "X.Y.Z-R" and new_version similarly.
+    """
+    # Step 1: Read the config file for SSH credentials
+    config_path = os.path.expanduser("~/.rgwfuncsrc")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Cannot find config file: {config_path}")
+
+    with open(config_path, "r", encoding='utf-8') as f:
+        data = json.load(f)
+
+    vm_presets = data.get("vm_presets", [])
+    preset = next((p for p in vm_presets if p.get("name") == "icdattcwsm"), None)
+    if not preset:
+        raise ValueError("No preset named 'icdattcwsm' found in ~/.rgwfuncsrc")
+
+    host = preset["host"]
+    ssh_user = preset["ssh_user"]
+    ssh_key_path = preset["ssh_key_path"]
+
+    # Step 2: List .deb files on the server
+    remote_deb_dir = (
+        "/home/rgw/Apps/frontend-sites/files.ryangerardwilson.com/scaffolds/debian/"
+        "dists/stable/main/binary-amd64"
+    )
+    ssh_cmd = (
+        f"ssh -i {ssh_key_path} {ssh_user}@{host} "
+        f"\"ls -1 {remote_deb_dir}/*.deb 2>/dev/null || true\""
+    )
+    output = subprocess.check_output(ssh_cmd, shell=True).decode("utf-8").strip()
+
+    if not output:
+        raise FileNotFoundError(f"No .deb files found in {remote_deb_dir}")
+
+    # Assume the last line is the relevant .deb file
+    deb_file_path = output.split("\n")[-1].strip()
+
+    # Step 3: Parse the filename for version info.
+    # Expected filename format: scaffolds_<MAJOR>.<MINOR>.<PATCH>-<REV>.deb
+    filename = os.path.basename(deb_file_path)
+    match = re.match(r"^scaffolds_(\d+\.\d+\.\d+)-(\d+)\.deb$", filename)
+    if not match:
+        raise ValueError(f"Could not parse version from deb file name: {filename}")
+
+    version_str = match.group(1)    # e.g. "1.0.3"
+    revision_str = match.group(2)   # e.g. "1"
+    current_version = f"{version_str}-{revision_str}"
+
+    # Split version_str into major, minor, patch components.
+    major_str, minor_str, patch_str = version_str.split(".")
+    server_major = int(major_str)
+    server_minor = int(minor_str)
+    server_patch = int(patch_str)
+    server_revision = int(revision_str)
+
+    # Step 4: Compute new version string.
+    if MAJOR_RELEASE_NUMBER is None:
+        # No new major specified; assume we want same major/minor with patch +1
+        new_major = server_major
+        new_minor = server_minor
+        new_patch = server_patch + 1
+        new_revision = server_revision  # keeping the same revision, or adjust if necessary
+    else:
+        user_major = int(MAJOR_RELEASE_NUMBER)
+        if user_major == server_major:
+            # Same major: increment patch (or adjust this logic if desired)
+            new_major = server_major
+            new_minor = server_minor
+            new_patch = server_patch + 1
+            new_revision = server_revision
+        else:
+            # New major version requested, format as: {MAJOR_RELEASE_NUMBER}.0.1-1
+            new_major = user_major
+            new_minor = 0
+            new_patch = 1
+            new_revision = 1
+
+    new_version = f"{new_major}.{new_minor}.{new_patch}-{new_revision}"
+    return current_version, new_version
+
+
 def get_new_version_number(MAJOR_RELEASE_NUMBER=None):
     """
     1) Reads ~/.rgwfuncsrc JSON to obtain the server credentials preset named 'icdattcwsm'.
@@ -127,213 +223,231 @@ def get_new_version_number(MAJOR_RELEASE_NUMBER=None):
     return new_version_str
 
 
-def replace_version_placeholder(file_path, version):
-    with open(file_path, 'r') as file:
-        content = file.read()
+def replace_version(main_go_path, new_version):
+    """
+    Reads the Go source file at main_go_path and replaces the value of the 'version'
+    variable with new_version. It assumes a line like:
+       version := "old_value"
+    This function uses a regular expression to substitute the value.
+    """
+    with open(main_go_path, 'r', encoding='utf-8') as f:
+        content = f.read()
 
-    # Replace the placeholder with the actual version
-    new_content = re.sub(r'\{\{VERSION_PLACEHOLDER\}\}', version, content)
+    pattern = r'(version\s*:=\s*")[^"]*(")'
 
-    # Optionally, write to a temporary file or overwrite
-    with open(file_path, 'w') as file:
-        file.write(new_content)
+    def replacer(match):
+        # match.group(1) is the part before the version value (including the opening quote)
+        # match.group(2) is the closing quote.
+        return match.group(1) + new_version + match.group(2)
+
+    new_content = re.sub(pattern, replacer, content)
+
+    with open(main_go_path, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+
+    print(f"[INFO] Replaced version with {new_version} in {main_go_path}")
 
 
 def build_variable_name(root_relative_path):
     """
-    Given a path relative to 'src', build a variable name of the form:
-    - If inside subdirs: dir_<dir1>_dir_<dir2>_..._file_<filename>_ext_<extension>
-    - If in root with normal filename.ext: file_<filename>_ext_<extension>
-    - If in root with pure extension (e.g., '.env'): ext_<extension_without_dot>
+    Given a path relative to 'src', build a variable name.
+    Rules:
+      - For a file in the root of src (like "main.ml") → "file_main_ext_ml"
+      - For a file like ".env" → "ext_env"
+      - For files in subdirectories, include 'dir_<dirname>' parts.
     """
     parts = root_relative_path.split(os.sep)
-
-    # If there's only one part (i.e., file directly in src/):
-    #   e.g., "main.ml" -> "file_main_ext_ml"
-    #   e.g., ".env"    -> "ext_env"
-    # If more subdirectories exist, we build out "dir_xxx" sections for each directory
-    # before final "file_xxx_ext_xxx".
-
-    # Remove any directories from the end that are actually the file name
-    # so that 'parts[-1]' is the filename, and 'parts[:-1]' are directories.
     dirs = parts[:-1]
     filename = parts[-1]
-
-    # Separate the filename from extension if it exists
     if filename.startswith('.'):  # pure extension, e.g. ".env"
-        # var name like: ext_env
-        var_name = f"ext_{filename[1:]}" if len(filename) > 1 else "ext_"  # handle edge cases
+        var_name = f"ext_{filename[1:]}" if len(filename) > 1 else "ext_"
     else:
-        # Split by last dot:
         if '.' in filename:
             name, ext = filename.rsplit('.', 1)
         else:
-            # File with no dots => no extension
             name, ext = filename, ""
-
-        if len(dirs) == 0:
-            # in root of src:
+        if not dirs:
             if ext == "":
-                # no extension => "file_<filename>"
                 var_name = f"file_{name}"
             else:
                 var_name = f"file_{name}_ext_{ext}"
         else:
-            # has directory parts
-            dir_chunks = []
-            for d in dirs:
-                dir_chunks.append(f"dir_{d}")
+            dir_chunks = [f"dir_{d}" for d in dirs]
             if ext == "":
                 var_name = "_".join(dir_chunks + [f"file_{name}"])
             else:
                 var_name = "_".join(dir_chunks + [f"file_{name}", f"ext_{ext}"])
-
-    return var_name
+    # Replace any dashes or spaces with underscore
+    return var_name.replace('-', '_').replace(' ', '_')
 
 
 def gather_files_from_src(src_dir):
     """
-    Recursively gather all files in src_dir, ignoring 'app' (no extension) in the root.
-    Returns a list of (relative_path, variable_name, file_content).
-    relative_path is path relative to src_dir, used later for scaffolding.
+    Recursively gather files in src_dir.
+    Returns a list of tuples: (relative_path, variable_name, file_content).
     """
     collected = []
     for root, dirs, files in os.walk(src_dir):
-        # For each file, figure out its relative path to src/
         for f in files:
             try:
                 full_path = os.path.join(root, f)
-                rel_path = os.path.relpath(full_path, src_dir)  # e.g., "lib/Home.ml"
-
-                # Check if ignoring 'src/app' with no extension in root
-                # That means if rel_path == "app" AND there's no '.' in "app"
+                rel_path = os.path.relpath(full_path, src_dir)
+                # Skip unwanted files (you can customize these filters)
                 if rel_path == "app" and '.' not in rel_path:
                     continue
-
-                # print("79", rel_path)
-                # Check if ignoring 'src/.tailwindcss-linux-x64' in root
                 if '.tailwindcss-linux-x64' in rel_path:
                     continue
-
-                # Check if ignoring 'src/resources/assets/styles.css' in root
-                if 'src/resources/assets/styles.css' in rel_path:
+                if '.db' in rel_path or '.swp' in rel_path:
                     continue
-
-                # Check if ignoring '.db'
-                if '.db' in rel_path:
-                    continue
-
-                if '.swp' in rel_path:
-                    continue
-
-                # Build the variable name
                 var_name = build_variable_name(rel_path)
-
-                # Read the file content
                 with open(full_path, 'r', encoding='utf-8') as infile:
                     content = infile.read()
-
                 collected.append((rel_path, var_name, content))
             except Exception as e:
-                full_path = os.path.join(root, f)
-                print(e, full_path)
+                print(f"[ERROR] Could not process file {full_path}: {e}")
     return collected
 
 
-def write_templates_lib(all_files):
+def write_main_go(all_files, version):
     """
-    Writes lib/templates_lib.ml with let-bindings like:
-    let dir_lib_file_home_ext_ml = {| <content> |}
-    ...
+    Write a new main.go file that:
+      - Imports "embed" and required packages.
+      - Embeds every file from src using a //go:embed directive.
+      - Defines the Scaffold function and command-line parsing.
     """
-    os.makedirs("lib", exist_ok=True)
-    output_path = os.path.join("lib", "templates_lib.ml")
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write("(* AUTO-GENERATED by compile.py Step 0 *)\n\n")
-        for _, var_name, content in all_files:
-            # Escape any {| or |} inside the content? Typically not needed if we trust the input,
-            # but if your files had literal {| or |}, that could conflict with the syntax.
-            f.write(f"let {var_name} = {{|\n{content}\n|}}\n\n")
-        print(f"[INFO] Step I - Generated {output_path}")
 
+    ascii_art = """
+  ░▒▓███████▓▒░░▒▓██████▓▒░ ░▒▓██████▓▒░░▒▓████████▓▒░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓███████▓▒░ ░▒▓███████▓▒░
+ ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░
+ ░▒▓█▓▒░      ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░
+  ░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓████████▓▒░▒▓██████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░
+        ░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░
+        ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░
+ ░▒▓███████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░      ░▒▓██████▓▒░░▒▓████████▓▒░▒▓███████▓▒░░▒▓███████▓▒░
 
-def write_scaffolder_lib(all_files):
+         ▗▖   ▄   ▄     ▗▄▄▖ ▄   ▄ ▗▞▀▜▌▄▄▄▄       ▗▄▄▖▗▞▀▚▖ ▄▄▄ ▗▞▀▜▌ ▄▄▄ ▐▌    ▗▖ ▗▖▄ █  ▄▄▄  ▄▄▄  ▄▄▄▄
+         ▐▌   █   █     ▐▌ ▐▌█   █ ▝▚▄▟▌█   █     ▐▌   ▐▛▀▀▘█    ▝▚▄▟▌█    ▐▌    ▐▌ ▐▌▄ █ ▀▄▄  █   █ █   █
+         ▐▛▀▚▖ ▀▀▀█     ▐▛▀▚▖ ▀▀▀█      █   █     ▐▌▝▜▌▝▚▄▄▖█         █ ▗▞▀▜▌    ▐▌ ▐▌█ █ ▄▄▄▀ ▀▄▄▄▀ █   █
+         ▐▙▄▞▘▄   █     ▐▌ ▐▌▄   █                ▝▚▄▞▘                 ▝▚▄▟▌    ▐▙█▟▌█ █
+               ▀▀▀            ▀▀▀
     """
-    Write lib/scaffolder_lib.ml, including a scaffold function that:
-      1) ensures directories exist
-      2) writes each file from Templates_lib
-      3) specifically writes compile.sh and chmod +x it
-    """
-    os.makedirs("lib", exist_ok=True)
-    output_path = os.path.join("lib", "scaffolder_lib.ml")
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write("(* AUTO-GENERATED by compile.py Step 0 *)\n\n")
 
-        f.write("let ensure_dir path =\n")
-        f.write("  if Sys.file_exists path then\n")
-        f.write("    Printf.printf \"[INFO] scaffolds - Directory '%s' already exists, skipping creation.\\n\" path\n")
-        f.write("  else begin\n")
-        f.write("    Unix.mkdir path 0o755;\n")
-        f.write("    Printf.printf \"[INFO] scaffolds - Created directory: %s\\n\" path\n")
-        f.write("  end\n\n")
-
-        f.write("let rec ensure_full_path path =\n")
-        f.write("  if not (Sys.file_exists path) then begin\n")
-        f.write("    ensure_full_path (Filename.dirname path);\n")
-        f.write("    Unix.mkdir path 0o755;\n")
-        f.write("    Printf.printf \"[INFO] scaffolds - Created directory: %s\\n\" path\n")
-        f.write("  end\n\n")
-
-        f.write("let write_file filename content =\n")
-        f.write("  let oc = open_out filename in\n")
-        f.write("  output_string oc content;\n")
-        f.write("  close_out oc;\n")
-        f.write("  Printf.printf \"[INFO] scaffolds - Created or updated file: %s\\n\" filename\n\n")
-
-        f.write("let scaffold target_dir =\n")
-        f.write("  ensure_full_path target_dir;\n\n")
-        f.write("  let full_path sub_path = Filename.concat target_dir sub_path in\n\n")
-
-        # For each file, we create directories and write files
+    with open("main.go", 'w', encoding='utf-8') as f:
+        # Write package and import block.
+        f.write("package main\n\n")
+        f.write("import (\n")
+        f.write("\t\"embed\"\n")
+        f.write("\t\"fmt\"\n")
+        f.write("\t\"io/ioutil\"\n")
+        f.write("\t\"log\"\n")
+        f.write("\t\"os\"\n")
+        f.write("\t\"path/filepath\"\n")
+        f.write("\t\"strings\"\n")
+        f.write(")\n\n")
+        # Dummy reference to avoid "imported and not used" error.
+        f.write("var _ embed.FS\n\n")
+        # Write embed directives for each file.
+        # (Assumes that the src directory is in the project root.)
+        for rel_path, var_name, content in all_files:
+            # Use forward slashes in embed paths.
+            embed_path = "src/" + rel_path.replace(os.sep, "/")
+            f.write(f"//go:embed {embed_path}\n")
+            f.write(f"var {var_name} string\n\n")
+        # Write helper functions.
+        f.write("func ensureFullPath(path string) error {\n")
+        f.write("\treturn os.MkdirAll(path, 0755)\n")
+        f.write("}\n\n")
+        f.write("func writeFile(filename, content string) error {\n")
+        f.write("\terr := ioutil.WriteFile(filename, []byte(content), 0644)\n")
+        f.write("\tif err != nil { return err }\n")
+        f.write("\tfmt.Printf(\"[INFO] scaffolds - Created or updated file: %s\\n\", filename)\n")
+        f.write("\treturn nil\n")
+        f.write("}\n\n")
+        # Write Scaffold function:
+        f.write("func Scaffold(targetDir string) error {\n")
+        f.write("\tif err := ensureFullPath(targetDir); err != nil { return err }\n")
+        f.write("\tfullPath := func(subPath string) string { return filepath.Join(targetDir, subPath) }\n\n")
+        # For each embedded file, add directory creation (if needed) and file writing.
         for rel_path, var_name, _ in all_files:
             sub_dir = os.path.dirname(rel_path)
-            if sub_dir != "":
-                f.write(f"  ensure_full_path (full_path \"{sub_dir}\");\n")
-            f.write(f"  write_file (full_path \"{rel_path}\") Templates_lib.{var_name};\n\n")
+            if sub_dir:
+                f.write(f"\tif err := ensureFullPath(fullPath(\"{sub_dir.replace(os.sep, '/')}\")); err != nil {{ return err }}\n")
+            f.write(f"\tif err := writeFile(fullPath(\"{rel_path.replace(os.sep, '/')}\"), {var_name}); err != nil {{ return err }}\n\n")
+        # Special handling: mark "compiler" as executable.
+        f.write("\tcompilerPath := fullPath(\"compiler\")\n")
+        f.write("\tif _, err := os.Stat(compilerPath); err == nil {\n")
+        f.write("\t\tif err := os.Chmod(compilerPath, 0755); err != nil {\n")
+        f.write("\t\t\tlog.Printf(\"[ERROR] scaffolds - Could not set executable permission on compiler: %v\\n\", err)\n")
+        f.write("\t\t} else {\n")
+        f.write("\t\t\tfmt.Println(\"[INFO] scaffolds - Set +x on compiler\")\n")
+        f.write("\t\t}\n")
+        f.write("\t}\n\n")
+        f.write("\tfmt.Println(\"[INFO] scaffolds - Scaffolding complete. You can now edit your files or compile.\")\n")
+        f.write("\treturn nil\n")
+        f.write("}\n\n")
+        # Write command-line argument parsing function.
+        f.write("func getScaffoldDirectory() (string, error) {\n")
+        f.write("\targs := os.Args[1:]\n")
+        f.write("\tfor i, arg := range args {\n")
+        f.write("\t\tif arg == \"--new\" {\n")
+        f.write("\t\t\tif i+1 < len(args) {\n")
+        f.write("\t\t\t\ttarget := args[i+1]\n")
+        f.write("\t\t\t\tif strings.HasPrefix(target, \"--\") {\n")
+        f.write("\t\t\t\t\treturn \"\", fmt.Errorf(\"no valid directory specified after '--new'\")\n")
+        f.write("\t\t\t\t}\n")
+        f.write("\t\t\t\treturn target, nil\n")
+        f.write("\t\t\t}\n")
+        f.write("\t\t\treturn \"\", fmt.Errorf(\"no argument found after '--new'\")\n")
+        f.write("\t\t}\n")
+        f.write("\t}\n")
+        f.write("\treturn \"\", fmt.Errorf(\"'--new' flag not found\")\n")
+        f.write("}\n\n")
+        # Then when writing main.go, include the ASCII art inside Go backticks.
+        f.write("func main() {\n")
+        f.write("\t// Print ASCII art banner\n")
+        # Write the raw literal open backtick, then the ASCII art, then the closing backtick.
+        f.write("\tconst asciiArt = `\n")
+        f.write(ascii_art + "\n")
+        f.write("`\n")
+        f.write("\tfmt.Println(asciiArt)\n\n")
+        f.write("\tversion := \"" + version + "\"\n")
+        f.write("\tfmt.Printf(\"Version: %s\\n\", version)\n\n")
+        f.write("\ttargetPath, err := getScaffoldDirectory()\n")
+        f.write("\tif err != nil {\n")
+        f.write("\t\tfmt.Printf(\"Error: %s\\n\", err.Error())\n")
+        f.write("\t\tfmt.Println(\"Program requires the name of the new directory where it will scaffold your project after the '--new' flag.\")\n")
+        f.write("\t\tos.Exit(1)\n")
+        f.write("\t}\n\n")
+        f.write("\tif err := Scaffold(targetPath); err != nil {\n")
+        f.write("\t\tfmt.Printf(\"Scaffolding failed: %v\\n\", err)\n")
+        f.write("\t\tos.Exit(1)\n")
+        f.write("\t}\n")
+        f.write("}\n")
 
-        # After writing everything, specifically handle compile.sh
-        f.write("  (* Make compiler executable *)\n")
-        f.write("  let compiler_path = full_path \"compiler\" in\n")
-        f.write("  if Sys.file_exists compiler_path then (\n")
-        f.write("    Unix.chmod compiler_path 0o755;\n")
-        f.write("    Printf.printf \"[INFO] scaffolds - Set +x on compiler\\n\"\n")
-        f.write("  );\n\n")
-
-        f.write("  print_endline \"[INFO] scaffolds - Scaffolding complete. You can now edit your files or compile.\";\n")
-
-    print(f"[INFO] Step I - Generated {output_path}")
+    print("[INFO] Generated main.go dynamically based on files in src/")
 
 
-def step1_preprocessing(args, version):
+def step1_preprocessing(args, current_version, new_version):
+
+    print("[INFO] Step I - Preprocessing – Generating main.go")
+    src_dir = "src"
+    if not os.path.isdir(src_dir):
+        print(f"[ERROR] src directory not found at {os.path.abspath(src_dir)}")
+        sys.exit(1)
+    all_files = gather_files_from_src(src_dir)
+    if not all_files:
+        print("[WARNING] No files found in src/.")
+    write_main_go(all_files, current_version)
 
     if "--publish" in args:
         print("[INFO] Step I - Preprocessing – Adding version number to main.ml")
         # Assume main.ml is in the same directory as this script
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        main_ml_path = os.path.join(script_dir, 'main.ml')
+        main_go_path = os.path.join(script_dir, 'main.go')
 
         # Replace the placeholder
-        replace_version_placeholder(main_ml_path, version)
+        replace_version(main_go_path, new_version)
 
-    print("[INFO] Step I - Preprocessing – Generating templates_lib.ml and scaffolder_lib.ml from src/ ...")
-    src_dir = "src"
-    if not os.path.isdir(src_dir):
-        print(f"[WARNING] Step I - 'src' directory not found at {os.path.abspath(src_dir)}. Skipping generation.")
-        return
-
-    all_files = gather_files_from_src(src_dir)
-    write_templates_lib(all_files)
-    write_scaffolder_lib(all_files)
     print("[INFO] Step I - Preprocessing complete")
 
 ################################################################################
@@ -374,72 +488,27 @@ def step1_preprocessing(args, version):
 # fi
 ##############################################################################
 
-def step2_compile(packages=OCAML_PACKAGES):
+def step2_compile():
     """
     Step II: Compile modules in order of dependencies (native code).
 
     The 'packages' parameter should be a comma-separated string of packages.
     If it is not empty, the '-package' flag will be added to the command.
     """
-    print("[INFO] Step II - Compiling modules...")
 
-    # Base command options
-    base_cmd = ["ocamlfind", "ocamlopt", "-c", "-I", "lib", "-I", "+unix", "-w", "+33"]
-
-    # If packages is not empty, include the '-package' flag and its value
-    if packages:
-        pkg_option = ["-package", packages]
-    else:
-        pkg_option = []
-
-    # Compile each module using the constructed command line
-    cmd_templates = base_cmd + pkg_option + ["lib/templates_lib.ml"]
-    subprocess.run(cmd_templates, check=True)
-
-    cmd_scaffolder = base_cmd + pkg_option + ["lib/scaffolder_lib.ml"]
-    subprocess.run(cmd_scaffolder, check=True)
-
-
-def step3_link(packages=OCAML_PACKAGES):
-    """
-    Step III: Link modules with main (native code).
-
-    The 'packages' parameter should be a comma-separated string of packages.
-    If it is not empty, the '-package' flag will be added to the command.
-    """
-    print("[INFO] Step III - Linking modules...")
-
-    # Base command options
-    base_cmd = ["ocamlfind", "ocamlopt", "-I", "lib", "-I", "+unix", "-o", "scaffolds", "-w", "+33"]
-
-    # Conditionally add package flags if packages string is not empty
-    pkg_option = ["-package", packages] if packages else []
-
-    # Prepare the full linking command
-    full_cmd = base_cmd + pkg_option + [
-        "unix.cmxa",
-        "lib/templates_lib.cmx",
-        "lib/scaffolder_lib.cmx",
-        "main.ml"
-    ]
-
-    subprocess.run(full_cmd, check=True)
-
-
-def step4_cleanup():
-    """
-    Step IV: Remove all compilation artifacts.
-    """
-    print("[INFO] Step IV - Cleaning up *.cmo, *.cmi, *.cmx, *.o, and *.out...")
-    for root, dirs, files in os.walk("."):
-        for f in files:
-            if f.endswith((".cmo", ".cmi", ".cmx", ".o", ".out")):
-                os.remove(os.path.join(root, f))
+    print("[INFO] STEP II - Now building the Go binary...")
+    env = os.environ.copy()
+    env["GOOS"] = "linux"
+    env["GOARCH"] = "amd64"
+    env["CGO_ENABLED"] = "0"
+    build_cmd = ["go", "build", "-o", "scaffolds", "main.go"]
+    subprocess.run(build_cmd, check=True, env=env)
+    print("[INFO] Build complete. To generate a scaffold, run: ./scaffolds --new <target_directory>")
 
 
 def step5_optional_test_scaffold(args):
     """
-    Step V: Check for the --and_generate_test_scaffold flag, if present:
+    Step V: Check for the --test flag, if present:
         - remove 'test' dir if exists
         - run ./scaffolds --new test
     """
@@ -701,26 +770,19 @@ def step6_optional_publish_release(args, version):
 
 def main():
 
-    version = get_new_version_number()
+    current_version, new_version = get_versions()
 
     # Step I: Preprocessing
-    step1_preprocessing(sys.argv[1:], version)
+    step1_preprocessing(sys.argv[1:], current_version, new_version)
 
     # Step II
     step2_compile()
-
-    # Step III
-    step3_link()
-    print("[INFO] Step III - Compilation complete.")
-
-    # Step IV
-    step4_cleanup()
 
     # Step V
     step5_optional_test_scaffold(sys.argv[1:])
 
     # Step VI
-    step6_optional_publish_release(sys.argv[1:], version)
+    step6_optional_publish_release(sys.argv[1:], new_version)
     print()
 
 
