@@ -247,6 +247,33 @@ def replace_version(main_hs_path, new_version):
     print(f"[INFO] Replaced version with {new_version} in {main_hs_path}")
 
 
+def gather_files_from_src(src_dir):
+    """
+    Recursively gather files in src_dir.
+    Returns a list of tuples: (relative_path, variable_name, file_content).
+    """
+    collected = []
+    for root, dirs, files in os.walk(src_dir):
+        for f in files:
+            try:
+                full_path = os.path.join(root, f)
+                rel_path = os.path.relpath(full_path, src_dir)
+                # Skip unwanted files (you can customize these filters)
+                if rel_path == "app" and '.' not in rel_path:
+                    continue
+                if '.tailwindcss-linux-x64' in rel_path:
+                    continue
+                if '.db' in rel_path or '.swp' in rel_path:
+                    continue
+                var_name = build_variable_name(rel_path)
+                with open(full_path, 'r', encoding='utf-8') as infile:
+                    content = infile.read()
+                collected.append((rel_path, var_name, content))
+            except Exception as e:
+                print(f"[ERROR] Could not process file {full_path}: {e}")
+    return collected
+
+
 def generate_templates_hs_module(file_paths, output_path):
     """
     Given a list of file paths (relative to some base such as "ocaml/"), generate a Haskell module
@@ -343,33 +370,6 @@ def generate_templates_hs_module(file_paths, output_path):
 
 
 
-
-def gather_files_from_src(src_dir):
-    """
-    Recursively gather files in src_dir.
-    Returns a list of tuples: (relative_path, variable_name, file_content).
-    """
-    collected = []
-    for root, dirs, files in os.walk(src_dir):
-        for f in files:
-            try:
-                full_path = os.path.join(root, f)
-                rel_path = os.path.relpath(full_path, src_dir)
-                # Skip unwanted files (you can customize these filters)
-                if rel_path == "app" and '.' not in rel_path:
-                    continue
-                if '.tailwindcss-linux-x64' in rel_path:
-                    continue
-                if '.db' in rel_path or '.swp' in rel_path:
-                    continue
-                var_name = build_variable_name(rel_path)
-                with open(full_path, 'r', encoding='utf-8') as infile:
-                    content = infile.read()
-                collected.append((rel_path, var_name, content))
-            except Exception as e:
-                print(f"[ERROR] Could not process file {full_path}: {e}")
-    return collected
-
 def generate_scaffolder_hs_module(gathered_files, output_path):
     """
     Generates the Haskell module for Scaffolder, dynamically building a
@@ -459,20 +459,21 @@ scaffold targetDir = do
 def step1_preprocessing(args, current_version, new_version):
 
     print("[INFO] Step I - Preprocessing – Generating main.go")
-    src_dir = "src"
+    src_dir = "ocaml"
     if not os.path.isdir(src_dir):
-        print(f"[ERROR] src directory not found at {os.path.abspath(src_dir)}")
+        print(f"[ERROR] ocaml directory not found at {os.path.abspath(src_dir)}")
         sys.exit(1)
     all_files = gather_files_from_src(src_dir)
     if not all_files:
         print("[WARNING] No files found in src/.")
-    write_main_hs(all_files, current_version)
+    generate_templates_hs_module(all_files, "lib/Templates.hs")
+    generate_scaffolder_hs_module(all_files, "lib/Scaffolder.hs")
 
     if "--publish" in args:
         print("[INFO] Step I - Preprocessing – Adding version number to main.ml")
         # Assume main.ml is in the same directory as this script
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        main_hs_path = os.path.join(script_dir, 'main.go')
+        main_hs_path = os.path.join(script_dir, 'app/Main.hs')
 
         # Replace the placeholder
         replace_version(main_hs_path, new_version)
