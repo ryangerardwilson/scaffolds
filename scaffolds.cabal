@@ -1,18 +1,18 @@
-cabal-version: 2.2
+cabal-version: 1.12
 
 -- This file has been generated from package.yaml by hpack version 0.35.2.
 --
 -- see: https://github.com/sol/hpack
 
 name:           scaffolds
-version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/githubuser/scaffolds#readme>
-homepage:       https://github.com/githubuser/scaffolds#readme
-bug-reports:    https://github.com/githubuser/scaffolds/issues
-author:         Author name here
-maintainer:     example@example.com
-copyright:      2025 Author name here
-license:        BSD-3-Clause
+version:        2.0.26-1
+description:    Please see the README on GitHub at <https://github.com/ryangerardwilson/scaffolds#readme>
+homepage:       https://github.com/ryangerardwilson/scaffolds#readme
+bug-reports:    https://github.com/ryangerardwilson/scaffolds/issues
+author:         Ryan Gerard Wilson
+maintainer:     ryangerardwilson@gmail.com
+copyright:      2025 Ryan Gerard Wilson
+license:        MIT
 license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
@@ -21,7 +21,7 @@ extra-source-files:
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/scaffolds
+  location: https://github.com/ryangerardwilson/scaffolds
 
 library
   exposed-modules:
@@ -29,10 +29,8 @@ library
       Templates
   other-modules:
       Paths_scaffolds
-  autogen-modules:
-      Paths_scaffolds
   hs-source-dirs:
-      src
+      lib
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.7 && <5
@@ -47,8 +45,6 @@ library
 executable scaffolds
   main-is: Main.hs
   other-modules:
-      Paths_scaffolds
-  autogen-modules:
       Paths_scaffolds
   hs-source-dirs:
       app
@@ -68,8 +64,6 @@ test-suite scaffolds-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Paths_scaffolds
-  autogen-modules:
       Paths_scaffolds
   hs-source-dirs:
       test

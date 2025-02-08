@@ -1,17 +1,16 @@
--- File: src/Scaffolder.hs
 {-# LANGUAGE CPP #-}
-module Scaffolder
-  ( scaffold
-  , writeFileWithInfo
-  , ensureDir
-  ) where
 
-import qualified Data.ByteString as BS
-import System.Directory ( createDirectoryIfMissing, doesFileExist )
-import System.FilePath ((</>))
+module Scaffolder
+  ( scaffold,
+    writeFileWithInfo,
+    ensureDir,
+  )
+where
+
 import Control.Monad (when)
-import System.IO (hPutStrLn, stderr)
-import System.Exit (exitFailure)
+import qualified Data.ByteString as BS
+import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.FilePath (takeDirectory, (</>))
 
 #ifndef mingw32_HOST_OS
 import System.Posix.Files ( getFileStatus, setFileMode, fileMode
@@ -21,6 +20,36 @@ import Data.Bits ((.|.))
 #endif
 
 import Templates
+
+templates :: [(FilePath, BS.ByteString)]
+templates =
+  [ ("main.ml", fileMainExtMl),
+    (".env", extEnv),
+    (".gitignore", extGitignore),
+    (".tailwind_build_input", extTailwindBuildInput),
+    ("compiler", fileCompiler),
+    ("dbs/logs/schema.sql", dbsLogsSchema),
+    ("dbs/auth/schema.sql", dbsAuthSchema),
+    ("utils/migrations.ml", utilsMigrations),
+    ("utils/debugger.ml", utilsDebugger),
+    ("utils/authentication.ml", utilsAuthentication),
+    ("utils/database.ml", utilsDatabase),
+    ("utils/renderer.ml", utilsRenderer),
+    ("resources/signup.html", resourcesSignup),
+    ("resources/debugger.html", resourcesDebugger),
+    ("resources/about.html", resourcesAbout),
+    ("resources/login.html", resourcesLogin),
+    ("resources/landing.html", resourcesLanding),
+    ("resources/dashboard.html", resourcesDashboard),
+    ("resources/assets/styles.css", resourcesAssetsStyles),
+    ("lib/login.ml", libLogin),
+    ("lib/logout.ml", libLogout),
+    ("lib/signup.ml", libSignup),
+    ("lib/about.ml", libAbout),
+    ("lib/assets.ml", libAssets),
+    ("lib/dashboard.ml", libDashboard),
+    ("lib/landing.ml", libLanding)
+  ]
 
 -- | Write a file and print an informational message.
 writeFileWithInfo :: FilePath -> BS.ByteString -> IO ()
@@ -37,45 +66,15 @@ scaffold :: FilePath -> IO ()
 scaffold targetDir = do
   ensureDir targetDir
   let fullPath sub = targetDir </> sub
-
-  writeFileWithInfo (fullPath "main.ml") fileMainExtMl
-  writeFileWithInfo (fullPath ".env") extEnv
-  writeFileWithInfo (fullPath ".gitignore") extGitignore
-  writeFileWithInfo (fullPath ".tailwind_build_input") extTailwindBuildInput
-  writeFileWithInfo (fullPath "compiler") fileCompiler
-
-  ensureDir (fullPath $ "dbs" </> "logs")
-  writeFileWithInfo (fullPath $ "dbs" </> "logs" </> "schema.sql") dbsLogsSchema
-
-  ensureDir (fullPath $ "dbs" </> "auth")
-  writeFileWithInfo (fullPath $ "dbs" </> "auth" </> "schema.sql") dbsAuthSchema
-
-  ensureDir (fullPath "utils")
-  writeFileWithInfo (fullPath $ "utils" </> "migrations.ml") utilsMigrations
-  writeFileWithInfo (fullPath $ "utils" </> "debugger.ml") utilsDebugger
-  writeFileWithInfo (fullPath $ "utils" </> "authentication.ml") utilsAuthentication
-  writeFileWithInfo (fullPath $ "utils" </> "database.ml") utilsDatabase
-  writeFileWithInfo (fullPath $ "utils" </> "renderer.ml") utilsRenderer
-
-  ensureDir (fullPath "resources")
-  writeFileWithInfo (fullPath $ "resources" </> "signup.html") resourcesSignup
-  writeFileWithInfo (fullPath $ "resources" </> "debugger.html") resourcesDebugger
-  writeFileWithInfo (fullPath $ "resources" </> "about.html") resourcesAbout
-  writeFileWithInfo (fullPath $ "resources" </> "login.html") resourcesLogin
-  writeFileWithInfo (fullPath $ "resources" </> "landing.html") resourcesLanding
-  writeFileWithInfo (fullPath $ "resources" </> "dashboard.html") resourcesDashboard
-
-  ensureDir (fullPath $ "resources" </> "assets")
-  writeFileWithInfo (fullPath $ "resources" </> "assets" </> "styles.css") assetsStyles
-
-  ensureDir (fullPath "lib")
-  writeFileWithInfo (fullPath $ "lib" </> "login.ml") libLogin
-  writeFileWithInfo (fullPath $ "lib" </> "logout.ml") libLogout
-  writeFileWithInfo (fullPath $ "lib" </> "signup.ml") libSignup
-  writeFileWithInfo (fullPath $ "lib" </> "about.ml") libAbout
-  writeFileWithInfo (fullPath $ "lib" </> "assets.ml") libAssets
-  writeFileWithInfo (fullPath $ "lib" </> "dashboard.ml") libDashboard
-  writeFileWithInfo (fullPath $ "lib" </> "landing.ml") libLanding
+  mapM_
+    ( \(rel, fileData) -> do
+        let dir = takeDirectory rel
+        if not (null dir)
+          then ensureDir (fullPath dir)
+          else return ()
+        writeFileWithInfo (fullPath rel) fileData
+    )
+    templates
 
   -- Set executable permission on the "compiler" file.
   let compilerPath = fullPath "compiler"
@@ -89,6 +88,4 @@ scaffold targetDir = do
 #else
     putStrLn "[INFO] scaffolds - Skipping setting executable permission (Windows)"
 #endif
-
   putStrLn "[INFO] scaffolds - Scaffolding complete. You can now edit your files or compile."
-

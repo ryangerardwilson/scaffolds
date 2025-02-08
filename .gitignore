@@ -11,7 +11,7 @@
 *.deb
 *.db
 scaffolds
-test2
+test_ocaml_project
 debian/version_build_folders/*
 debian/version_debs/*
 debian/dists/*

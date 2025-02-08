@@ -223,28 +223,48 @@ def get_new_version_number(MAJOR_RELEASE_NUMBER=None):
     return new_version_str
 
 
-def replace_version(main_hs_path, new_version):
+def replace_version(main_hs_path, package_yaml_path, new_version):
     """
-    Reads the Haskell source file at main_hs_path and replaces the value of the 'version'
-    variable with new_version. It assumes a line like:
+    Replaces version strings in both the Haskell source file and package.yaml file with new_version.
+
+    For main_hs_path, it assumes a version line like:
          let version = "2.0.26-1"
-    and uses a regular expression to substitute the version string.
+    For package_yaml_path, it assumes a version line like:
+         version: "0.1.0.0"
+    and replaces it so that the new version is always quoted.
     """
+    # --- Update the Haskell source file ---
     with open(main_hs_path, 'r', encoding='utf-8') as f:
-        content = f.read()
+        main_content = f.read()
 
-    # Updated regex: match a line starting with 'let version = "' and ending with '"'
-    pattern = r'(let\s+version\s*=\s*")[^"]*(")'
+    # Regular expression for Haskell version definition:
+    hs_pattern = r'(let\s+version\s*=\s*")[^"]*(")'
 
-    def replacer(match):
+    def hs_replacer(match):
         return match.group(1) + new_version + match.group(2)
-
-    new_content = re.sub(pattern, replacer, content)
+    new_main_content = re.sub(hs_pattern, hs_replacer, main_content)
 
     with open(main_hs_path, 'w', encoding='utf-8') as f:
-        f.write(new_content)
-
+        f.write(new_main_content)
     print(f"[INFO] Replaced version with {new_version} in {main_hs_path}")
+
+    # --- Update the package.yaml file ---
+    with open(package_yaml_path, 'r', encoding='utf-8') as f:
+        pkg_content = f.read()
+
+    # Regular expression for YAML version field at the beginning of a line.
+    # It will match versions with or without quotes.
+    pkg_pattern = r'^(version:\s*)["\']?([^"\n]+)["\']?'
+
+    def pkg_replacer(match):
+        # Always force double quotes around the new version.
+        return match.group(1) + '"' + new_version + '"'
+
+    new_pkg_content = re.sub(pkg_pattern, pkg_replacer, pkg_content, flags=re.MULTILINE)
+
+    with open(package_yaml_path, 'w', encoding='utf-8') as f:
+        f.write(new_pkg_content)
+    print(f"[INFO] Replaced version with {new_version} in {package_yaml_path}")
 
 
 def gather_files_from_src(src_dir):
@@ -252,6 +272,54 @@ def gather_files_from_src(src_dir):
     Recursively gather files in src_dir.
     Returns a list of tuples: (relative_path, variable_name, file_content).
     """
+
+    def build_variable_name(root_relative_path):
+        """
+        Given a path relative to your resource base, build a Haskell-style variable name.
+        Example rules:
+          - "main.ml" → "fileMainExtMl"
+          - ".env" → "extEnv"
+          - "dbs/logs/schema.sql" → "dbsLogsSchema"
+        """
+
+        def to_camel(s, capitalize_first=True):
+            """Convert a string to CamelCase."""
+            parts = re.split(r'[\s_-]+', s)
+            if not parts:
+                return ""
+            if capitalize_first:
+                return ''.join(word.capitalize() for word in parts)
+            else:
+                return parts[0].lower() + ''.join(word.capitalize() for word in parts[1:])
+
+        parts = root_relative_path.split(os.sep)
+        if len(parts) == 1:
+            filename = parts[0]
+            if filename.startswith('.'):
+                base = filename[1:]
+                return "ext" + to_camel(base)
+            else:
+                if '.' in filename:
+                    name, ext = filename.rsplit('.', 1)
+                    return "file" + to_camel(name) + "Ext" + to_camel(ext)
+                else:
+                    return "file" + to_camel(filename)
+        else:
+            dirs = parts[:-1]
+            filename = parts[-1]
+            first_dir = dirs[0].lower()
+            remaining_dirs = "".join(to_camel(d, capitalize_first=True) for d in dirs[1:])
+            dir_part = first_dir + remaining_dirs
+            if filename.startswith('.'):
+                base = filename[1:]
+                return "ext" + to_camel(base)
+            else:
+                if '.' in filename:
+                    name, _ = filename.rsplit('.', 1)
+                    return dir_part + to_camel(name)
+                else:
+                    return dir_part + to_camel(filename)
+
     collected = []
     for root, dirs, files in os.walk(src_dir):
         for f in files:
@@ -276,12 +344,13 @@ def gather_files_from_src(src_dir):
 
 def generate_templates_hs_module(file_paths, output_path):
     """
-    Given a list of file paths (relative to some base such as "ocaml/"), generate a Haskell module
+    Given a list of file paths (relative to some base such as "src_ocaml_project/"), generate a Haskell module
     called Templates that declares variables for each file using file embedding.
-    
-    file_paths: a list of tuples (path, comment), where 'path' is the relative path (e.g. "ocaml/main.ml")
-                and comment is an optional comment describing the file.
-                
+
+    file_paths: a list of tuples. Each tuple can have either:
+       (path, comment) or (path, variable_name, file_content)
+    This function will use the first element (the file path) and the second element as a comment.
+
     output_path: the file system path where the Templates.hs file should be written.
     """
 
@@ -336,49 +405,55 @@ def generate_templates_hs_module(file_paths, output_path):
         "{-# LANGUAGE TemplateHaskell #-}\n"
         "{-# LANGUAGE CPP #-}\n"
         "module Templates\n"
-        "  ( "  # we could list exports here or use a wildcard export list
+        "  ( "  # we could list exports here
     )
     # Collect all variable names for the export list:
     var_names = []
     embed_lines = []
-    for file_path, comment in file_paths:
+    for entry in file_paths:
+        # Depending on tuple length, unpack appropriately.
+        if len(entry) == 2:
+            file_path, comment = entry
+        elif len(entry) >= 3:
+            file_path, comment, _ = entry   # ignore the third element
+        else:
+            raise ValueError("Each tuple in file_paths must have at least 2 elements.")
         var_name = build_variable_name(file_path)
         var_names.append(var_name)
         # Create an embedding line:
         embed_line = f'{var_name} :: ByteString\n'
-        embed_line += f'{var_name} = $(embedFile "{file_path}")'
+        embed_line += f'{var_name} = $(embedFile "src_ocaml_project/{file_path}")'
         if comment:
             embed_line += f'  -- {comment}'
         embed_lines.append(embed_line)
-    
+
     export_list = ", ".join(var_names)
     header += export_list + "\n  ) where\n\n"
-    
+
     imports = (
         "import Data.ByteString (ByteString)\n"
         "import Data.FileEmbed (embedFile)\n\n"
     )
-    
+
     body = "\n\n".join(embed_lines)
-    
+
     module_text = header + imports + body + "\n"
-    
+
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(module_text)
-    
-    print(f"[INFO] Generated {output_path}")
 
+    print(f"[INFO] Generated {output_path}")
 
 
 def generate_scaffolder_hs_module(gathered_files, output_path):
     """
     Generates the Haskell module for Scaffolder, dynamically building a
     list of templates from the gathered files.
-    
+
     gathered_files: A list of tuples (rel_path, variable_name, file_content).
       The file_content is not embedded here (we assume that the variables are
       defined in the Templates module). We simply use the variable_name as a reference.
-      
+
     output_path: The path where the Scaffolder.hs file will be written (e.g. "lib/Scaffolder.hs" or "src/Scaffolder.hs").
     """
     header = """{-# LANGUAGE CPP #-}
@@ -392,8 +467,6 @@ import qualified Data.ByteString as BS
 import System.Directory ( createDirectoryIfMissing, doesFileExist )
 import System.FilePath ((</>), takeDirectory)
 import Control.Monad (when)
-import System.IO (hPutStrLn, stderr)
-import System.Exit (exitFailure)
 
 #ifndef mingw32_HOST_OS
 import System.Posix.Files ( getFileStatus, setFileMode, fileMode
@@ -455,28 +528,30 @@ scaffold targetDir = do
     print(f"[INFO] Generated {output_path}")
 
 
-
 def step1_preprocessing(args, current_version, new_version):
 
     print("[INFO] Step I - Preprocessing – Generating main.go")
-    src_dir = "ocaml"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    src_dir = "src_ocaml_project"
     if not os.path.isdir(src_dir):
         print(f"[ERROR] ocaml directory not found at {os.path.abspath(src_dir)}")
         sys.exit(1)
     all_files = gather_files_from_src(src_dir)
     if not all_files:
         print("[WARNING] No files found in src/.")
-    generate_templates_hs_module(all_files, "lib/Templates.hs")
-    generate_scaffolder_hs_module(all_files, "lib/Scaffolder.hs")
+    templates_hs_path = os.path.join(script_dir, 'lib/Templates.hs')
+    scaffolder_hs_path = os.path.join(script_dir, 'lib/Scaffolder.hs')
+    generate_templates_hs_module(all_files, templates_hs_path)
+    generate_scaffolder_hs_module(all_files, scaffolder_hs_path)
 
     if "--publish" in args:
         print("[INFO] Step I - Preprocessing – Adding version number to main.ml")
         # Assume main.ml is in the same directory as this script
-        script_dir = os.path.dirname(os.path.abspath(__file__))
         main_hs_path = os.path.join(script_dir, 'app/Main.hs')
+        package_yaml_path = os.path.join(script_dir, 'package.yaml')
 
         # Replace the placeholder
-        replace_version(main_hs_path, new_version)
+        replace_version(main_hs_path, package_yaml_path, new_version)
 
     print("[INFO] Step I - Preprocessing complete")
 
@@ -520,35 +595,29 @@ def step1_preprocessing(args, current_version, new_version):
 
 def step2_compile():
     """
-    Step II: Compile modules in order of dependencies (native code).
-
-    The 'packages' parameter should be a comma-separated string of packages.
-    If it is not empty, the '-package' flag will be added to the command.
+    Step II: Build the Haskell project using Stack.
     """
-
-    print("[INFO] STEP II - Now building the Go binary...")
+    print("[INFO] STEP II - Now building the Haskell project using Stack...")
     env = os.environ.copy()
-    env["GOOS"] = "linux"
-    env["GOARCH"] = "amd64"
-    env["CGO_ENABLED"] = "0"
-    build_cmd = ["go", "build", "-o", "scaffolds", "main.go"]
+    build_cmd = ["stack", "build"]
     subprocess.run(build_cmd, check=True, env=env)
-    print("[INFO] Build complete. To generate a scaffold, run: ./scaffolds --new <target_directory>")
+    print("[INFO] Build complete. To run your scaffolder, use:")
+    print("       stack exec scaffolds -- --new <target_directory>")
 
 
 def step5_optional_test_scaffold(args):
     """
     Step V: Check for the --test flag, if present:
         - remove 'test' dir if exists
-        - run ./scaffolds --new test
+        - run ./scaffolds --new test_project
     """
     if "--test" in args:
         print("[INFO] Step V - Detected --and_generate_test_scaffold flag.")
         if os.path.isdir("test"):
             print("[INFO] Step V - Removing existing 'test' directory...")
-            subprocess.run(["rm", "-rf", "test"], check=True)
+            subprocess.run(["rm", "-rf", "test_ocaml_project"], check=True)
         print("[INFO] Step V - Generating test scaffold via ./scaffolds --new test")
-        subprocess.run(["./scaffolds", "--new", "test"], check=True)
+        subprocess.run(["./scaffolds", "--new", "test_ocaml_project"], check=True)
         print("[INFO] Step VI Completed!")
     else:
         print("[INFO] Use the --test flag to generate the test scaffold.")

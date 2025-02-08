@@ -1,24 +1,25 @@
 -- File: app/Main.hs
 {-# LANGUAGE QuasiQuotes #-}
+
 module Main (main) where
 
-import System.Environment (getArgs)
-import System.IO (hPutStrLn, stderr)
-import System.Exit (exitFailure)
-import Text.RawString.QQ (r)
 import Scaffolder (scaffold)
+import System.Environment (getArgs)
+import System.Exit (exitFailure)
+import System.IO (hPutStrLn, stderr)
+import Text.RawString.QQ (r)
 
 -- | Parse command-line arguments (in Main) expecting a "--new <directory>" flag pair.
 parseArgs :: [String] -> IO FilePath
 parseArgs args = case args of
   [] -> usageAndExit "Error: no arguments provided."
-  _  -> findNew args
+  _ -> findNew args
   where
     findNew [] = usageAndExit "Error: '--new' flag not found."
-    findNew ("--new":dir:_)
+    findNew ("--new" : dir : _)
       | take 2 dir == "--" = usageAndExit "Error: no valid directory specified after '--new'"
-      | otherwise          = return dir
-    findNew (_:rest) = findNew rest
+      | otherwise = return dir
+    findNew (_ : rest) = findNew rest
 
     usageAndExit err = do
       hPutStrLn stderr err
@@ -28,7 +29,8 @@ parseArgs args = case args of
 main :: IO ()
 main = do
   -- Print ASCII art banner using a raw string literal.
-  let asciiArt = [r|
+  let asciiArt =
+        [r|
 
   ░▒▓███████▓▒░░▒▓██████▓▒░ ░▒▓██████▓▒░░▒▓████████▓▒░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓███████▓▒░ ░▒▓███████▓▒░
  ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░
@@ -53,6 +55,3 @@ main = do
   args <- getArgs
   targetPath <- parseArgs args
   scaffold targetPath
-
-
-
