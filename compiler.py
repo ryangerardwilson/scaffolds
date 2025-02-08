@@ -9,7 +9,6 @@ from packaging.version import parse as parse_version
 
 
 MAJOR_RELEASE_NUMBER = 2
-OCAML_PACKAGES = ""  # A comma separated string of packages injected into the compile and link commands
 
 ###############################################################################
 # STEP I: Preprocessing – Generate lib/templates_lib.ml and lib/scaffolder_lib.ml
@@ -232,7 +231,11 @@ def replace_version(main_hs_path, package_yaml_path, new_version):
     For package_yaml_path, it assumes a version line like:
          version: "0.1.0.0"
     and replaces it so that the new version is always quoted.
+
+    In particular, if new_version is "2.0.27-1", then main.hs gets "2.0.27-1"
+    while package.yaml gets "2.0.27.1".
     """
+
     # --- Update the Haskell source file ---
     with open(main_hs_path, 'r', encoding='utf-8') as f:
         main_content = f.read()
@@ -248,6 +251,10 @@ def replace_version(main_hs_path, package_yaml_path, new_version):
         f.write(new_main_content)
     print(f"[INFO] Replaced version with {new_version} in {main_hs_path}")
 
+    # --- Convert new_version for package.yaml ---
+    # Replace hyphens with dots for package.yaml
+    pkg_new_version = new_version.replace("-", ".")
+
     # --- Update the package.yaml file ---
     with open(package_yaml_path, 'r', encoding='utf-8') as f:
         pkg_content = f.read()
@@ -258,13 +265,13 @@ def replace_version(main_hs_path, package_yaml_path, new_version):
 
     def pkg_replacer(match):
         # Always force double quotes around the new version.
-        return match.group(1) + '"' + new_version + '"'
+        return match.group(1) + '"' + pkg_new_version + '"'
 
     new_pkg_content = re.sub(pkg_pattern, pkg_replacer, pkg_content, flags=re.MULTILINE)
 
     with open(package_yaml_path, 'w', encoding='utf-8') as f:
         f.write(new_pkg_content)
-    print(f"[INFO] Replaced version with {new_version} in {package_yaml_path}")
+    print(f"[INFO] Replaced version with {pkg_new_version} in {package_yaml_path}")
 
 
 def gather_files_from_src(src_dir):
@@ -442,7 +449,7 @@ def generate_templates_hs_module(file_paths, output_path):
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(module_text)
 
-    print(f"[INFO] Generated {output_path}")
+    print(f"[INFO] STEP I - Generated {output_path}")
 
 
 def generate_scaffolder_hs_module(gathered_files, output_path):
@@ -525,7 +532,7 @@ scaffold targetDir = do
     module_text = header + templates_list + main_function
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(module_text)
-    print(f"[INFO] Generated {output_path}")
+    print(f"[INFO] STEP I - Generated {output_path}")
 
 
 def step1_preprocessing(args, current_version, new_version):
@@ -534,11 +541,11 @@ def step1_preprocessing(args, current_version, new_version):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     src_dir = "src_ocaml_project"
     if not os.path.isdir(src_dir):
-        print(f"[ERROR] ocaml directory not found at {os.path.abspath(src_dir)}")
+        print(f"[ERROR] STEP I - Ocaml directory not found at {os.path.abspath(src_dir)}")
         sys.exit(1)
     all_files = gather_files_from_src(src_dir)
     if not all_files:
-        print("[WARNING] No files found in src/.")
+        print("[WARNING] STEP I - No files found in src/.")
     templates_hs_path = os.path.join(script_dir, 'lib/Templates.hs')
     scaffolder_hs_path = os.path.join(script_dir, 'lib/Scaffolder.hs')
     generate_templates_hs_module(all_files, templates_hs_path)
@@ -556,76 +563,51 @@ def step1_preprocessing(args, current_version, new_version):
     print("[INFO] Step I - Preprocessing complete")
 
 ################################################################################
-# Steps II–V: Compile, Link, Cleanup, and (optionally) generate test scaffold
+# STEP II: Compile
 ################################################################################
-# These steps basically perform the equivalent of this shell script:
-# #!/bin/bash
 
-# # Helper message to inform the user about the flag
-# echo "Use the --and_generate_test_scaffold flag to generate the test scaffold."
-
-# # Step I - Compile modules in order of dependencies
-# # Although, we can use 'ocamlc -c file_name.ml', when we specify paths in our command we need to use 'ocamlc -c -I lib lib/file_name.ml'
-# ocamlc -c -I lib lib/templates_lib.ml
-# ocamlc -c -I lib lib/scaffolder_lib.ml
-# Include the unix directory in the search path
-# ocamlc -c -I lib -I +unix -w +33 lib/templates_lib.ml
-# ocamlc -c -I lib -I +unix -w +33 lib/scaffolder_lib.ml
-
-
-# # Step II - Link modules to main in order of dependencies
-# ocamlc -I lib -I +unix -o scaffolds unix.cma lib/templates_lib.cmo lib/scaffolder_lib.cmo main.ml
-
-# # Step III - Remove all .cmo, .cmi, .out files from the pwd and all sub-directories
-# find . -type f \( -name "*.cmo" -o -name "*.cmi" -o -name "*.out" \) -exec rm -f {} +
-
-# # Step IV - Check for the --and_generate_test_scaffold flag and execute the scaffold command if present
-# if [[ " $@ " =~ " --and_generate_test_scaffold " ]]; then
-#   # Remove the test directory if it exists
-#   if [ -d "test" ]; then
-#     rm -rf test
-#     echo "Existing 'test' directory removed."
-#   fi
-#
-#   # Execute the scaffold generation
-#   ./scaffolds --new test
-#   echo "Test scaffold has been generated."
-# fi
-##############################################################################
 
 def step2_compile():
     """
-    Step II: Build the Haskell project using Stack.
+    Step II: Build and install the Haskell project using Stack.
     """
     print("[INFO] STEP II - Now building the Haskell project using Stack...")
     env = os.environ.copy()
+
+    # Build the project
     build_cmd = ["stack", "build"]
     subprocess.run(build_cmd, check=True, env=env)
-    print("[INFO] Build complete. To run your scaffolder, use:")
-    print("       stack exec scaffolds -- --new <target_directory>")
+
+    print("[INFO] STEP II - Build complete. Now installing the executable...")
+
+    # By setting the verbosity level to error, we suppress warnings while installing.
+    install_cmd = ["stack", "install", "--verbosity=error"]
+    subprocess.run(install_cmd, check=True, env=env)
+
+    print("[INFO] STEP II - Installation complete. You can now run your scaffolder by calling 'scaffolds' from your terminal.")
+
+##############################################################################
+# STEP III - Test or Publish
+##############################################################################
 
 
-def step5_optional_test_scaffold(args):
+def step3_optional_test_scaffold(args):
     """
     Step V: Check for the --test flag, if present:
         - remove 'test' dir if exists
         - run ./scaffolds --new test_project
     """
     if "--test" in args:
-        print("[INFO] Step V - Detected --and_generate_test_scaffold flag.")
+        print("[INFO] Step III - Detected --and_generate_test_scaffold flag.")
         if os.path.isdir("test"):
-            print("[INFO] Step V - Removing existing 'test' directory...")
+            print("[INFO] Step III - Removing existing 'test' directory...")
             subprocess.run(["rm", "-rf", "test_ocaml_project"], check=True)
-        print("[INFO] Step V - Generating test scaffold via ./scaffolds --new test")
+        print("[INFO] Step III - Generating test scaffold via ./scaffolds --new test_ocaml_project")
         subprocess.run(["./scaffolds", "--new", "test_ocaml_project"], check=True)
-        print("[INFO] Step VI Completed!")
+        print("[INFO] Step III Completed!")
     else:
         print("[INFO] Use the --test flag to generate the test scaffold.")
 
-
-################################################################################
-# Step VI - Publish Release
-################################################################################
 
 def publish_release(version):
 
@@ -660,9 +642,9 @@ Description: An OCaml-powered web application framework with syntax so pretty, y
         # 6) Build the package with dpkg-deb
         output_deb = os.path.join(out_debs_dir, f"scaffolds_{version}.deb")
         cmd = ["dpkg-deb", "--build", build_root, output_deb]
-        print(f"[INFO] Running: {' '.join(cmd)}")
+        print(f"[INFO] STEP III - Running: {' '.join(cmd)}")
         subprocess.check_call(cmd)
-        print(f"[INFO] Finished building {output_deb}")
+        print(f"[INFO] STEP III - Finished building {output_deb}")
 
     def prepare_deb_for_distribution(version):
         """
@@ -677,7 +659,7 @@ Description: An OCaml-powered web application framework with syntax so pretty, y
         # 1) Remove old 'stable' directory entirely to avoid hash mismatches
         stable_dir = "debian/dists/stable"
         if os.path.exists(stable_dir):
-            print("[INFO] Removing previous debian/dists/stable folder to ensure a clean slate.")
+            print("[INFO] STEP III - Removing previous debian/dists/stable folder to ensure a clean slate.")
             shutil.rmtree(stable_dir)
 
         # 2) Re-create apt_binary_dir
@@ -689,11 +671,11 @@ Description: An OCaml-powered web application framework with syntax so pretty, y
         if not os.path.exists(overrides_path):
             with open(overrides_path, "w") as f:
                 f.write("scaffolds optional utils\n")
-        print(f"[INFO] overrides.txt verified at {overrides_path}")
+        print(f"[INFO] STEP III - overrides.txt verified at {overrides_path}")
 
         # 4) Copy the newly built .deb into the apt_binary_dir
         deb_source = os.path.join("debian/version_debs", f"scaffolds_{version}.deb")
-        print(f"[INFO] Copying {deb_source} to {apt_binary_dir}")
+        print(f"[INFO] STEP III - Copying {deb_source} to {apt_binary_dir}")
         shutil.copy2(deb_source, apt_binary_dir)
 
         # 5) Generate Packages and Packages.gz with dpkg-scanpackages
@@ -704,13 +686,13 @@ Description: An OCaml-powered web application framework with syntax so pretty, y
             "overrides.txt"
         ]
         packages_path = os.path.join(apt_binary_dir, "Packages")
-        print("[INFO] Generating Packages via dpkg-scanpackages...")
+        print("[INFO] STEP III - Generating Packages via dpkg-scanpackages...")
         with open(packages_path, "w") as pf:
             subprocess.check_call(pkg_cmd, cwd=apt_binary_dir, stdout=pf)
-        print(f"[INFO] Created {packages_path}")
+        print(f"[INFO] STEP III - Created {packages_path}")
 
         prefix = "dists/stable/main/binary-amd64/"
-        print("[INFO] Adjusting 'Filename:' entries to remove './'...")
+        print("[INFO] STEP III - Adjusting 'Filename:' entries to remove './'...")
         with open(packages_path, "r") as f:
             lines = f.readlines()
         with open(packages_path, "w") as f:
@@ -719,13 +701,13 @@ Description: An OCaml-powered web application framework with syntax so pretty, y
                 if line.startswith("Filename: ./"):
                     line = line.replace("Filename: ./", f"Filename: {prefix}")
                 f.write(line)
-        print("[INFO] Updated Filename paths in Packages file.")
+        print("[INFO] STEP III - Updated Filename paths in Packages file.")
 
         packages_gz_path = os.path.join(apt_binary_dir, "Packages.gz")
-        print("[INFO] Compressing Packages to Packages.gz...")
+        print("[INFO] STEP III - Compressing Packages to Packages.gz...")
         with open(packages_gz_path, "wb") as f_out:
             subprocess.check_call(["gzip", "-9c", "Packages"], cwd=apt_binary_dir, stdout=f_out)
-        print(f"[INFO] Created {packages_gz_path}")
+        print(f"[INFO] STEP III - Created {packages_gz_path}")
 
         # 6) Generate a proper Release file with apt-ftparchive in debian/dists/stable
         os.makedirs(stable_dir, exist_ok=True)
@@ -744,10 +726,10 @@ Components "main";
 
         release_path = os.path.join(stable_dir, "Release")
         apt_ftparchive_cmd = ["apt-ftparchive", "-c", "apt-ftparchive.conf", "release", "."]
-        print(f"[INFO] Running apt-ftparchive to generate Release (cwd={stable_dir})...")
+        print(f"[INFO] STEP III - Running apt-ftparchive to generate Release (cwd={stable_dir})...")
         with open(release_path, "w") as release_file:
             subprocess.check_call(apt_ftparchive_cmd, cwd=stable_dir, stdout=release_file)
-        print(f"[INFO] Generated Release at {release_path}")
+        print(f"[INFO] STEP III - Generated Release at {release_path}")
 
         # 7) Optionally sign Release with GPG
         print("[INFO] Signing Release file with GPG...")
@@ -760,9 +742,9 @@ Components "main";
             "Release"
         ]
         subprocess.check_call(sign_cmd, cwd=stable_dir)
-        print("[INFO] Release file signed (Release.gpg created).")
+        print("[INFO] STEP III - Release file signed (Release.gpg created).")
 
-        print("[INFO] prepare_deb_for_distribution completed successfully.")
+        print("[INFO] STEP III - prepare_deb_for_distribution completed successfully.")
 
     def push_to_server():
         """
@@ -794,7 +776,7 @@ Components "main";
             f"ssh -i {ssh_key_path} {ssh_user}@{host} "
             f"'rm -rf {remote_path}/debian'"
         )
-        print(f"[INFO] Removing existing debian directory on server: {remote_path}/debian")
+        print(f"[INFO] STEP III - Removing existing debian directory on server: {remote_path}/debian")
         subprocess.check_call(ssh_cmd, shell=True)
 
         # Step 3) Rsync local 'debian' folder to server, excluding certain directories
@@ -803,9 +785,9 @@ Components "main";
             f"--exclude 'version_build_folders' --exclude 'version_debs' "
             f"debian {ssh_user}@{host}:{remote_path}"
         )
-        print(f"[INFO] Uploading local debian folder to {remote_path} on server (excluding version_build_folders and version_debs)")
+        print(f"[INFO] STEP III - Uploading local debian folder to {remote_path} on server (excluding version_build_folders and version_debs)")
         subprocess.check_call(rsync_cmd, shell=True)
-        print("[INFO] push_to_server completed successfully.")
+        print("[INFO] STEP III - push_to_server completed successfully.")
 
     def delete_all_but_last_version_build_folders():
         build_folders_path = "debian/version_build_folders"
@@ -822,7 +804,7 @@ Components "main";
         # Keep the last version only
         for folder in version_folders[1:]:
             full_path = os.path.join(build_folders_path, folder)
-            print(f"[INFO] Deleting build folder: {full_path}")
+            print(f"[INFO] STEP III - Deleting build folder: {full_path}")
             shutil.rmtree(full_path)
 
     def delete_all_but_last_version_debs():
@@ -840,7 +822,7 @@ Components "main";
         # Keep the last version only
         for deb in deb_files[1:]:
             full_path = os.path.join(debs_dir, deb)
-            print(f"[INFO] Deleting deb file: {full_path}")
+            print(f"[INFO] STEP III - Deleting deb file: {full_path}")
             os.remove(full_path)
 
     # version = get_new_version_number(MAJOR_RELEASE_NUMBER)
@@ -851,14 +833,14 @@ Components "main";
     delete_all_but_last_version_debs()
 
 
-def step6_optional_publish_release(args, version):
+def step3_optional_publish_release(args, version):
     """
     Step VI: Check for the --publish_release flag, if present:
     """
     if "--publish" in args:
-        print("[INFO] Step VI - Detected --publish flag.")
+        print("[INFO] Step III - Detected --publish flag.")
         publish_release(version)
-        print("[INFO] Step VI Completed!")
+        print("[INFO] Step III Completed!")
     else:
         print("[INFO] Use the --publish flag to publish the latest release.")
 
@@ -877,11 +859,9 @@ def main():
     # Step II
     step2_compile()
 
-    # Step V
-    step5_optional_test_scaffold(sys.argv[1:])
-
-    # Step VI
-    step6_optional_publish_release(sys.argv[1:], new_version)
+    # Step III
+    step3_optional_test_scaffold(sys.argv[1:])
+    step3_optional_publish_release(sys.argv[1:], new_version)
     print()
 
 
