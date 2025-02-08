@@ -11,7 +11,7 @@
 *.deb
 *.db
 scaffolds
-test_2
+test2
 debian/version_build_folders/*
 debian/version_debs/*
 debian/dists/*
