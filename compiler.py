@@ -578,13 +578,13 @@ def step2_compile():
     build_cmd = ["stack", "build"]
     subprocess.run(build_cmd, check=True, env=env)
 
-    print("[INFO] STEP II - Build complete. Now installing the executable...")
+    print("[INFO] STEP II - Build complete.")
 
     # By setting the verbosity level to error, we suppress warnings while installing.
     install_cmd = ["stack", "install", "--verbosity=error"]
     subprocess.run(install_cmd, check=True, env=env)
 
-    print("[INFO] STEP II - Installation complete. You can now run your scaffolder by calling 'scaffolds' from your terminal.")
+    print("[INFO] STEP II - Binary generated.")
 
 ##############################################################################
 # STEP III - Test or Publish
