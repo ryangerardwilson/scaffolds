@@ -1,3 +1,5 @@
+.stack-work/
+*~
 *.swp
 *.cmi
 *.cmx
@@ -9,7 +11,8 @@
 *.deb
 *.db
 scaffolds
-test
+test_2
 debian/version_build_folders/*
 debian/version_debs/*
 debian/dists/*
+

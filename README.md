@@ -18,7 +18,7 @@ An OCaml-powered web application framework with syntax so pretty, you'd want to 
     sudo apt-get update; sudo apt-get install opam; opam init
     # Open a new terminal to re-initialize the shell
     eval $(opam env)
-    
+
     # Ocamlfind & Other Dependencies
     opam install ocamlfind cohttp-lwt-unix dotenv sqlite3 yojson
 
@@ -47,4 +47,5 @@ Make sure to replace `<target_directory>` with the actual path where you want sc
 ## 5. License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 

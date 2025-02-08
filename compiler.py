@@ -223,62 +223,125 @@ def get_new_version_number(MAJOR_RELEASE_NUMBER=None):
     return new_version_str
 
 
-def replace_version(main_go_path, new_version):
+def replace_version(main_hs_path, new_version):
     """
-    Reads the Go source file at main_go_path and replaces the value of the 'version'
+    Reads the Haskell source file at main_hs_path and replaces the value of the 'version'
     variable with new_version. It assumes a line like:
-       version := "old_value"
-    This function uses a regular expression to substitute the value.
+         let version = "2.0.26-1"
+    and uses a regular expression to substitute the version string.
     """
-    with open(main_go_path, 'r', encoding='utf-8') as f:
+    with open(main_hs_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
-    pattern = r'(version\s*:=\s*")[^"]*(")'
+    # Updated regex: match a line starting with 'let version = "' and ending with '"'
+    pattern = r'(let\s+version\s*=\s*")[^"]*(")'
 
     def replacer(match):
-        # match.group(1) is the part before the version value (including the opening quote)
-        # match.group(2) is the closing quote.
         return match.group(1) + new_version + match.group(2)
 
     new_content = re.sub(pattern, replacer, content)
 
-    with open(main_go_path, 'w', encoding='utf-8') as f:
+    with open(main_hs_path, 'w', encoding='utf-8') as f:
         f.write(new_content)
 
-    print(f"[INFO] Replaced version with {new_version} in {main_go_path}")
+    print(f"[INFO] Replaced version with {new_version} in {main_hs_path}")
 
 
-def build_variable_name(root_relative_path):
+def generate_templates_hs_module(file_paths, output_path):
     """
-    Given a path relative to 'src', build a variable name.
-    Rules:
-      - For a file in the root of src (like "main.ml") → "file_main_ext_ml"
-      - For a file like ".env" → "ext_env"
-      - For files in subdirectories, include 'dir_<dirname>' parts.
+    Given a list of file paths (relative to some base such as "ocaml/"), generate a Haskell module
+    called Templates that declares variables for each file using file embedding.
+    
+    file_paths: a list of tuples (path, comment), where 'path' is the relative path (e.g. "ocaml/main.ml")
+                and comment is an optional comment describing the file.
+                
+    output_path: the file system path where the Templates.hs file should be written.
     """
-    parts = root_relative_path.split(os.sep)
-    dirs = parts[:-1]
-    filename = parts[-1]
-    if filename.startswith('.'):  # pure extension, e.g. ".env"
-        var_name = f"ext_{filename[1:]}" if len(filename) > 1 else "ext_"
-    else:
-        if '.' in filename:
-            name, ext = filename.rsplit('.', 1)
+
+    def to_camel(s, capitalize_first=True):
+        """Convert a string to CamelCase."""
+        parts = re.split(r'[\s_-]+', s)
+        if not parts:
+            return ""
+        if capitalize_first:
+            return ''.join(word.capitalize() for word in parts)
         else:
-            name, ext = filename, ""
-        if not dirs:
-            if ext == "":
-                var_name = f"file_{name}"
+            return parts[0].lower() + ''.join(word.capitalize() for word in parts[1:])
+
+    def build_variable_name(root_relative_path):
+        """
+        Given a path relative to your resource base, build a Haskell variable name.
+        Example rules:
+          - "main.ml" → "fileMainExtMl"
+          - ".env" → "extEnv"
+          - "dbs/logs/schema.sql" → "dbsLogsSchema"
+        """
+        parts = root_relative_path.split(os.sep)
+        if len(parts) == 1:
+            filename = parts[0]
+            if filename.startswith('.'):
+                base = filename[1:]
+                return "ext" + to_camel(base)
             else:
-                var_name = f"file_{name}_ext_{ext}"
+                if '.' in filename:
+                    name, ext = filename.rsplit('.', 1)
+                    return "file" + to_camel(name) + "Ext" + to_camel(ext)
+                else:
+                    return "file" + to_camel(filename)
         else:
-            dir_chunks = [f"dir_{d}" for d in dirs]
-            if ext == "":
-                var_name = "_".join(dir_chunks + [f"file_{name}"])
+            dirs = parts[:-1]
+            filename = parts[-1]
+            first_dir = dirs[0].lower()
+            remaining_dirs = "".join(to_camel(d, capitalize_first=True) for d in dirs[1:])
+            dir_part = first_dir + remaining_dirs
+            if filename.startswith('.'):
+                base = filename[1:]
+                return "ext" + to_camel(base)
             else:
-                var_name = "_".join(dir_chunks + [f"file_{name}", f"ext_{ext}"])
-    # Replace any dashes or spaces with underscore
-    return var_name.replace('-', '_').replace(' ', '_')
+                if '.' in filename:
+                    name, ext = filename.rsplit('.', 1)
+                    # For subdirectory files, we omit the extension as in your examples.
+                    return dir_part + to_camel(name)
+                else:
+                    return dir_part + to_camel(filename)
+
+    header = (
+        "{-# LANGUAGE TemplateHaskell #-}\n"
+        "{-# LANGUAGE CPP #-}\n"
+        "module Templates\n"
+        "  ( "  # we could list exports here or use a wildcard export list
+    )
+    # Collect all variable names for the export list:
+    var_names = []
+    embed_lines = []
+    for file_path, comment in file_paths:
+        var_name = build_variable_name(file_path)
+        var_names.append(var_name)
+        # Create an embedding line:
+        embed_line = f'{var_name} :: ByteString\n'
+        embed_line += f'{var_name} = $(embedFile "{file_path}")'
+        if comment:
+            embed_line += f'  -- {comment}'
+        embed_lines.append(embed_line)
+    
+    export_list = ", ".join(var_names)
+    header += export_list + "\n  ) where\n\n"
+    
+    imports = (
+        "import Data.ByteString (ByteString)\n"
+        "import Data.FileEmbed (embedFile)\n\n"
+    )
+    
+    body = "\n\n".join(embed_lines)
+    
+    module_text = header + imports + body + "\n"
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(module_text)
+    
+    print(f"[INFO] Generated {output_path}")
+
+
 
 
 def gather_files_from_src(src_dir):
@@ -307,124 +370,90 @@ def gather_files_from_src(src_dir):
                 print(f"[ERROR] Could not process file {full_path}: {e}")
     return collected
 
-
-def write_main_go(all_files, version):
+def generate_scaffolder_hs_module(gathered_files, output_path):
     """
-    Write a new main.go file that:
-      - Imports "embed" and required packages.
-      - Embeds every file from src using a //go:embed directive.
-      - Defines the Scaffold function and command-line parsing.
+    Generates the Haskell module for Scaffolder, dynamically building a
+    list of templates from the gathered files.
+    
+    gathered_files: A list of tuples (rel_path, variable_name, file_content).
+      The file_content is not embedded here (we assume that the variables are
+      defined in the Templates module). We simply use the variable_name as a reference.
+      
+    output_path: The path where the Scaffolder.hs file will be written (e.g. "lib/Scaffolder.hs" or "src/Scaffolder.hs").
     """
+    header = """{-# LANGUAGE CPP #-}
+module Scaffolder
+  ( scaffold
+  , writeFileWithInfo
+  , ensureDir
+  ) where
 
-    ascii_art = """
-  ░▒▓███████▓▒░░▒▓██████▓▒░ ░▒▓██████▓▒░░▒▓████████▓▒░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓███████▓▒░ ░▒▓███████▓▒░
- ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░
- ░▒▓█▓▒░      ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░
-  ░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓████████▓▒░▒▓██████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░
-        ░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░
-        ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░
- ░▒▓███████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░      ░▒▓██████▓▒░░▒▓████████▓▒░▒▓███████▓▒░░▒▓███████▓▒░
+import qualified Data.ByteString as BS
+import System.Directory ( createDirectoryIfMissing, doesFileExist )
+import System.FilePath ((</>), takeDirectory)
+import Control.Monad (when)
+import System.IO (hPutStrLn, stderr)
+import System.Exit (exitFailure)
 
-         ▗▖   ▄   ▄     ▗▄▄▖ ▄   ▄ ▗▞▀▜▌▄▄▄▄       ▗▄▄▖▗▞▀▚▖ ▄▄▄ ▗▞▀▜▌ ▄▄▄ ▐▌    ▗▖ ▗▖▄ █  ▄▄▄  ▄▄▄  ▄▄▄▄
-         ▐▌   █   █     ▐▌ ▐▌█   █ ▝▚▄▟▌█   █     ▐▌   ▐▛▀▀▘█    ▝▚▄▟▌█    ▐▌    ▐▌ ▐▌▄ █ ▀▄▄  █   █ █   █
-         ▐▛▀▚▖ ▀▀▀█     ▐▛▀▚▖ ▀▀▀█      █   █     ▐▌▝▜▌▝▚▄▄▖█         █ ▗▞▀▜▌    ▐▌ ▐▌█ █ ▄▄▄▀ ▀▄▄▄▀ █   █
-         ▐▙▄▞▘▄   █     ▐▌ ▐▌▄   █                ▝▚▄▞▘                 ▝▚▄▟▌    ▐▙█▟▌█ █
-               ▀▀▀            ▀▀▀
-    """
+#ifndef mingw32_HOST_OS
+import System.Posix.Files ( getFileStatus, setFileMode, fileMode
+                          , ownerExecuteMode, groupExecuteMode, otherExecuteMode
+                          )
+import Data.Bits ((.|.))
+#endif
 
-    with open("main.go", 'w', encoding='utf-8') as f:
-        # Write package and import block.
-        f.write("package main\n\n")
-        f.write("import (\n")
-        f.write("\t\"embed\"\n")
-        f.write("\t\"fmt\"\n")
-        f.write("\t\"io/ioutil\"\n")
-        f.write("\t\"log\"\n")
-        f.write("\t\"os\"\n")
-        f.write("\t\"path/filepath\"\n")
-        f.write("\t\"strings\"\n")
-        f.write(")\n\n")
-        # Dummy reference to avoid "imported and not used" error.
-        f.write("var _ embed.FS\n\n")
-        # Write embed directives for each file.
-        # (Assumes that the src directory is in the project root.)
-        for rel_path, var_name, content in all_files:
-            # Use forward slashes in embed paths.
-            embed_path = "src/" + rel_path.replace(os.sep, "/")
-            f.write(f"//go:embed {embed_path}\n")
-            f.write(f"var {var_name} string\n\n")
-        # Write helper functions.
-        f.write("func ensureFullPath(path string) error {\n")
-        f.write("\treturn os.MkdirAll(path, 0755)\n")
-        f.write("}\n\n")
-        f.write("func writeFile(filename, content string) error {\n")
-        f.write("\terr := ioutil.WriteFile(filename, []byte(content), 0644)\n")
-        f.write("\tif err != nil { return err }\n")
-        f.write("\tfmt.Printf(\"[INFO] scaffolds - Created or updated file: %s\\n\", filename)\n")
-        f.write("\treturn nil\n")
-        f.write("}\n\n")
-        # Write Scaffold function:
-        f.write("func Scaffold(targetDir string) error {\n")
-        f.write("\tif err := ensureFullPath(targetDir); err != nil { return err }\n")
-        f.write("\tfullPath := func(subPath string) string { return filepath.Join(targetDir, subPath) }\n\n")
-        # For each embedded file, add directory creation (if needed) and file writing.
-        for rel_path, var_name, _ in all_files:
-            sub_dir = os.path.dirname(rel_path)
-            if sub_dir:
-                f.write(f"\tif err := ensureFullPath(fullPath(\"{sub_dir.replace(os.sep, '/')}\")); err != nil {{ return err }}\n")
-            f.write(f"\tif err := writeFile(fullPath(\"{rel_path.replace(os.sep, '/')}\"), {var_name}); err != nil {{ return err }}\n\n")
-        # Special handling: mark "compiler" as executable.
-        f.write("\tcompilerPath := fullPath(\"compiler\")\n")
-        f.write("\tif _, err := os.Stat(compilerPath); err == nil {\n")
-        f.write("\t\tif err := os.Chmod(compilerPath, 0755); err != nil {\n")
-        f.write("\t\t\tlog.Printf(\"[ERROR] scaffolds - Could not set executable permission on compiler: %v\\n\", err)\n")
-        f.write("\t\t} else {\n")
-        f.write("\t\t\tfmt.Println(\"[INFO] scaffolds - Set +x on compiler\")\n")
-        f.write("\t\t}\n")
-        f.write("\t}\n\n")
-        f.write("\tfmt.Println(\"[INFO] scaffolds - Scaffolding complete. You can now edit your files or compile.\")\n")
-        f.write("\treturn nil\n")
-        f.write("}\n\n")
-        # Write command-line argument parsing function.
-        f.write("func getScaffoldDirectory() (string, error) {\n")
-        f.write("\targs := os.Args[1:]\n")
-        f.write("\tfor i, arg := range args {\n")
-        f.write("\t\tif arg == \"--new\" {\n")
-        f.write("\t\t\tif i+1 < len(args) {\n")
-        f.write("\t\t\t\ttarget := args[i+1]\n")
-        f.write("\t\t\t\tif strings.HasPrefix(target, \"--\") {\n")
-        f.write("\t\t\t\t\treturn \"\", fmt.Errorf(\"no valid directory specified after '--new'\")\n")
-        f.write("\t\t\t\t}\n")
-        f.write("\t\t\t\treturn target, nil\n")
-        f.write("\t\t\t}\n")
-        f.write("\t\t\treturn \"\", fmt.Errorf(\"no argument found after '--new'\")\n")
-        f.write("\t\t}\n")
-        f.write("\t}\n")
-        f.write("\treturn \"\", fmt.Errorf(\"'--new' flag not found\")\n")
-        f.write("}\n\n")
-        # Then when writing main.go, include the ASCII art inside Go backticks.
-        f.write("func main() {\n")
-        f.write("\t// Print ASCII art banner\n")
-        # Write the raw literal open backtick, then the ASCII art, then the closing backtick.
-        f.write("\tconst asciiArt = `\n")
-        f.write(ascii_art + "\n")
-        f.write("`\n")
-        f.write("\tfmt.Println(asciiArt)\n\n")
-        f.write("\tversion := \"" + version + "\"\n")
-        f.write("\tfmt.Printf(\"Version: %s\\n\", version)\n\n")
-        f.write("\ttargetPath, err := getScaffoldDirectory()\n")
-        f.write("\tif err != nil {\n")
-        f.write("\t\tfmt.Printf(\"Error: %s\\n\", err.Error())\n")
-        f.write("\t\tfmt.Println(\"Program requires the name of the new directory where it will scaffold your project after the '--new' flag.\")\n")
-        f.write("\t\tos.Exit(1)\n")
-        f.write("\t}\n\n")
-        f.write("\tif err := Scaffold(targetPath); err != nil {\n")
-        f.write("\t\tfmt.Printf(\"Scaffolding failed: %v\\n\", err)\n")
-        f.write("\t\tos.Exit(1)\n")
-        f.write("\t}\n")
-        f.write("}\n")
+import Templates
 
-    print("[INFO] Generated main.go dynamically based on files in src/")
+"""
+    # Build the templates list using each tuple’s relative path and variable name.
+    templates_lines = []
+    for rel_path, var_name, content in gathered_files:
+        # Use proper Haskell string literal syntax for the file path.
+        templates_lines.append(f'  ("{rel_path}", {var_name})')
+    templates_list = "templates :: [(FilePath, BS.ByteString)]\ntemplates =\n  [\n" + ",\n".join(templates_lines) + "\n  ]\n\n"
+
+    main_function = """-- | Write a file and print an informational message.
+writeFileWithInfo :: FilePath -> BS.ByteString -> IO ()
+writeFileWithInfo path content = do
+  BS.writeFile path content
+  putStrLn $ "[INFO] scaffolds - Created or updated file: " ++ path
+
+-- | Ensure that a directory exists.
+ensureDir :: FilePath -> IO ()
+ensureDir = createDirectoryIfMissing True
+
+-- | The main scaffolding function: creates directories and writes out embedded files.
+scaffold :: FilePath -> IO ()
+scaffold targetDir = do
+  ensureDir targetDir
+  let fullPath sub = targetDir </> sub
+  mapM_ (\\(rel, fileData) -> do
+          let dir = takeDirectory rel
+          if not (null dir)
+            then ensureDir (fullPath dir)
+            else return ()
+          writeFileWithInfo (fullPath rel) fileData
+        ) templates
+
+  -- Set executable permission on the "compiler" file.
+  let compilerPath = fullPath "compiler"
+  exists <- doesFileExist compilerPath
+  when exists $ do
+#ifndef mingw32_HOST_OS
+    status <- getFileStatus compilerPath
+    let newMode = fileMode status .|. ownerExecuteMode .|. groupExecuteMode .|. otherExecuteMode
+    setFileMode compilerPath newMode
+    putStrLn "[INFO] scaffolds - Set +x on compiler"
+#else
+    putStrLn "[INFO] scaffolds - Skipping setting executable permission (Windows)"
+#endif
+  putStrLn "[INFO] scaffolds - Scaffolding complete. You can now edit your files or compile."
+"""
+    module_text = header + templates_list + main_function
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(module_text)
+    print(f"[INFO] Generated {output_path}")
+
 
 
 def step1_preprocessing(args, current_version, new_version):
@@ -437,16 +466,16 @@ def step1_preprocessing(args, current_version, new_version):
     all_files = gather_files_from_src(src_dir)
     if not all_files:
         print("[WARNING] No files found in src/.")
-    write_main_go(all_files, current_version)
+    write_main_hs(all_files, current_version)
 
     if "--publish" in args:
         print("[INFO] Step I - Preprocessing – Adding version number to main.ml")
         # Assume main.ml is in the same directory as this script
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        main_go_path = os.path.join(script_dir, 'main.go')
+        main_hs_path = os.path.join(script_dir, 'main.go')
 
         # Replace the placeholder
-        replace_version(main_go_path, new_version)
+        replace_version(main_hs_path, new_version)
 
     print("[INFO] Step I - Preprocessing complete")
 

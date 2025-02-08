@@ -1,0 +1,93 @@
+#!/bin/bash
+
+# Define all packages in one place as a comma-separated list.
+PACKAGES="cohttp-lwt-unix,dotenv,str,base64,sqlite3,yojson,owl"
+
+# Step 1: Compile modules (native code)
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/database.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/migrations.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/renderer.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/authentication.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 utils/debugger.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/landing.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/about.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/signup.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/login.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/logout.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/dashboard.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 lib/assets.ml
+
+ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+    -I utils -I lib -w +33 main.ml
+
+# Step 2: Link modules (native code)
+ocamlfind ocamlopt -thread -package "$PACKAGES" -linkpkg \
+    -o app \
+    utils/database.cmx \
+    utils/migrations.cmx \
+    utils/renderer.cmx \
+    utils/authentication.cmx \
+    utils/debugger.cmx \
+    lib/landing.cmx \
+    lib/signup.cmx \
+    lib/about.cmx \
+    lib/login.cmx \
+    lib/logout.cmx \
+    lib/dashboard.cmx \
+    lib/assets.cmx \
+    main.cmx
+
+# Step 3: Clean .cmi, .cmo, .out
+# Step 3: Clean .cmi, .cmo, .cmx, .o, .out
+find . -type f \
+  \( -name "*.cmo" -o -name "*.cmi" -o -name "*.cmx" -o -name "*.o" -o -name "*.out" \) \
+  -exec rm -f {} +
+
+# Step 4: Download the tailwindcss cli, and compile the assets
+TAILWIND_CSS_URL="https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64"
+TAILWIND_CSS_BINARY=".tailwindcss-linux-x64"  # Hidden file
+INPUT_FILE=".tailwind_build_input"
+OUTPUT_FILE="resources/assets/styles.css"
+
+# Step 5: Check if the Tailwind CSS binary already exists, download it if not
+if [ ! -f "$TAILWIND_CSS_BINARY" ]; then
+    echo "[INFO] Downloading the Tailwind binary."
+    curl -sLO "$TAILWIND_CSS_URL"
+    mv "tailwindcss-linux-x64" "$TAILWIND_CSS_BINARY"
+    chmod +x "$TAILWIND_CSS_BINARY"
+    echo "[INFO] Tailwind bindary is now executable."
+fi
+
+echo "[INFO] Generating Minified Tailwind CSS."
+./"$TAILWIND_CSS_BINARY" -i "$INPUT_FILE" -o "$OUTPUT_FILE" --minify
+
+# Step 6: Optionally run
+if [[ "$1" == "--run" ]]; then
+  ./app
+else
+  echo "[INFO] Use the --run flag to compile and run the app automatically."
+fi
+
