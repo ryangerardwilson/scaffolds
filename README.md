@@ -60,6 +60,7 @@ Finally, run the app in the current session, or via systemctl, via the compiler.
     ./compiler --delete-prod-service-file             delete the production systemd service file
     ./compiler --get-prod-server-status               get the production service status
     ./compiler --view-prod-server-logs                follow the production service logs
+    ./compiler --nginx                                to configure nginx and sign ssl (requires DOMAIN_NAME in .env, and nginx+cerbot pre-installed)
 
 ## 5. License
 
