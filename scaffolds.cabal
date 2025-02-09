@@ -5,7 +5,7 @@ cabal-version: 1.12
 -- see: https://github.com/sol/hpack
 
 name:           scaffolds
-version:        2.0.45.1
+version:        2.0.46.1
 description:    Please see the README on GitHub at <https://github.com/ryangerardwilson/scaffolds#readme>
 homepage:       https://github.com/ryangerardwilson/scaffolds#readme
 bug-reports:    https://github.com/ryangerardwilson/scaffolds/issues

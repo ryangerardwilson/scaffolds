@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE CPP #-}
 module Templates
-  ( fileMainExtMl, extEnv, extGitignore, extTailwindBuildInput, fileCompiler, dbsLogsSchema, dbsAuthSchema, utilsMigrations, utilsDebugger, utilsAuthentication, utilsDatabase, utilsRenderer, resourcesSignup, resourcesDebugger, resourcesAbout, resourcesLogin, resourcesLanding, resourcesDashboard, resourcesAssetsStyles, libLogin, libLogout, libSignup, libAbout, libAssets, libDashboard, libLanding
+  ( fileMainExtMl, extEnv, extGitignore, extTailwindBuildInput, fileCompiler, dbsLogsSchema, dbsAuthSchema, utilsMigrations, utilsDebugger, utilsAuthentication, utilsDatabase, utilsRenderer, resourcesSignup, resourcesDebugger, resourcesAbout, resourcesLogin, resourcesLanding, resourcesDashboard, resourcesAssetsStyles, resourcesComponentsWrappersBaseTemplate, resourcesComponentsEmbedsMainContent, libLogin, libLogout, libSignup, libAbout, libAssets, libDashboard, libLanding
   ) where
 
 import Data.ByteString (ByteString)
@@ -63,6 +63,12 @@ resourcesDashboard = $(embedFile "src_ocaml_project/resources/dashboard.html")  
 
 resourcesAssetsStyles :: ByteString
 resourcesAssetsStyles = $(embedFile "src_ocaml_project/resources/assets/styles.css")  -- resourcesAssetsStyles
+
+resourcesComponentsWrappersBaseTemplate :: ByteString
+resourcesComponentsWrappersBaseTemplate = $(embedFile "src_ocaml_project/resources/components/wrappers/base-template.html")  -- resourcesComponentsWrappersBaseTemplate
+
+resourcesComponentsEmbedsMainContent :: ByteString
+resourcesComponentsEmbedsMainContent = $(embedFile "src_ocaml_project/resources/components/embeds/main-content.html")  -- resourcesComponentsEmbedsMainContent
 
 libLogin :: ByteString
 libLogin = $(embedFile "src_ocaml_project/lib/login.ml")  -- libLogin

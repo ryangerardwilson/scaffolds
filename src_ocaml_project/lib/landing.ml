@@ -1,7 +1,5 @@
 (* lib/Landing.ml *)
 
-
-
 (* Handle landing page requests *)
 let handle_landing _conn req _body =
   let username = Authentication.get_username_if_user_is_logged_in req in
@@ -15,10 +13,23 @@ let handle_landing _conn req _body =
   let link_block_html =
     match username with
     | Some _ ->
-      "<p><a href=\"/dashboard\">Go to Dashboard</a> | <a href=\"/about\">About</a> | <a href=\"/logout\">Logout</a></p>"
+      {|<nav class="flex items-center space-x-2">
+<a href="/dashboard" class="text-blue-500 hover:text-blue-700 font-semibold">Dashboard</a>
+<span class="text-gray-500">|</span>
+<a href="/about" class="text-blue-500 hover:text-blue-700 font-semibold">About</a>
+<span class="text-gray-500">|</span>
+<a href="/logout" class="text-blue-500 hover:text-blue-700 font-semibold">Logout</a>
+</nav>|}
     | None ->
-      "<p><a href=\"/signup\">Sign Up</a> | <a href=\"/login\">Login</a> | <a href=\"/about\">About</a></p>"
+      {|<nav class="flex items-center space-x-2">
+<a href="/signup" class="text-green-500 hover:text-green-700 font-semibold">Sign Up</a>
+<span class="text-gray-500">|</span>
+<a href="/login" class="text-green-500 hover:text-green-700 font-semibold">Login</a>
+<span class="text-gray-500">|</span>
+<a href="/about" class="text-blue-500 hover:text-blue-700 font-semibold">About</a>
+</nav>|}
   in
+
 
   let filename = "landing.html" in
   let app_name = Sys.getenv "APP_NAME" in

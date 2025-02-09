@@ -41,6 +41,8 @@ templates =
   ("resources/landing.html", resourcesLanding),
   ("resources/dashboard.html", resourcesDashboard),
   ("resources/assets/styles.css", resourcesAssetsStyles),
+  ("resources/components/wrappers/base-template.html", resourcesComponentsWrappersBaseTemplate),
+  ("resources/components/embeds/main-content.html", resourcesComponentsEmbedsMainContent),
   ("lib/login.ml", libLogin),
   ("lib/logout.ml", libLogout),
   ("lib/signup.ml", libSignup),
