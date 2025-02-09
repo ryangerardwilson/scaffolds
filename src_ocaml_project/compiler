@@ -18,12 +18,6 @@ if [ -z "$APP_NAME" ]; then
 fi
 PROD_SERVICE_NAME="${APP_NAME}.service"
 
-
-# Function to display information messages
-function info() {
-    echo "[INFO] $1"
-}
-
 # Function to ensure Opam, OCaml, and required packages are installed globally.
 # Takes two arguments: a comma-separated list of packages and the OCaml version.
 function setup_ocaml_environment() {
@@ -32,15 +26,15 @@ function setup_ocaml_environment() {
 
     # Step 0: Ensure Opam is installed and configured
     if ! command -v opam &> /dev/null; then
-        info "Opam is not installed. Installing Opam..."
+        echo "[INFO] Opam is not installed. Installing Opam..."
         bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh)" 2>/dev/null
     else
-        info "Opam is already installed."
+        echo "[INFO] Opam is already installed."
     fi
 
     # Initialize Opam and update the environment
     if [ ! -d "$HOME/.opam" ]; then
-        info "Initializing Opam..."
+        echo "[INFO] Initializing Opam..."
         opam init --disable-sandboxing -y 2>/dev/null
         eval "$(opam env)"
     else
@@ -49,35 +43,37 @@ function setup_ocaml_environment() {
 
     # Ensure the specified OCaml version is installed and switch to it
     if ! opam switch list 2>/dev/null | grep -q "$OCAML_VERSION"; then
-        info "Installing and switching to OCaml $OCAML_VERSION..."
+        echo "[INFO] Installing and switching to OCaml $OCAML_VERSION..."
         opam switch create "$OCAML_VERSION" ocaml-base-compiler."$OCAML_VERSION" 2>/dev/null
         eval "$(opam env)"
     else
-        info "OCaml $OCAML_VERSION is already installed. Switching to it..."
+        echo "[INFO] OCaml $OCAML_VERSION is already installed. Switching to it..."
         opam switch "$OCAML_VERSION" 2>/dev/null
         eval "$(opam env)"
     fi
 
     # Convert comma-separated packages to space-separated for opam install
     local PACKAGES_SPACE
-    PACKAGES_SPACE=$(echo "$PACKAGES" | tr ',' ' ')
+    PACKAGES_SPACE=$(echo "[INFO] $PACKAGES" | tr ',' ' ')
 
     # Update opam and install necessary OCaml packages
-    info "Installing necessary OCaml packages: ${PACKAGES_SPACE}"
+    echo "[INFO] Installing necessary OCaml packages: ${PACKAGES_SPACE}"
     opam update 2>/dev/null
     opam install -y ocamlfind $PACKAGES_SPACE 2>/dev/null
 
     # Inform the user of the current OCaml version
-    info "Currently using OCaml version:"
+    echo "[INFO] Currently using OCaml version:"
     ocaml --version
 
     # Expose the relevant environment variables in the current session
-    info "Exposing OPAM environment variables to the current session..."
+    echo "[INFO] Exposing OPAM environment variables to the current session..."
     eval "$(opam env)"
 
 }
 
 function compile() {
+  eval "$(opam env)"
+
   # Step 1: Compile modules (native code)
   ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
       -I utils -I lib -w +33 utils/database.ml
@@ -164,7 +160,8 @@ function compile() {
 
 # Function to run the app.
 function run_dev_server() {
-  info "Running the app..."
+  compile
+  echo "[INFO] Running the app..."
   ./app
 }
 
@@ -173,7 +170,7 @@ function ensure_prod_service() {
     local SERVICE_FILE="/etc/systemd/system/${PROD_SERVICE_NAME}"
 
     if [ ! -f "$SERVICE_FILE" ]; then
-        info "Production service file does not exist. Creating $SERVICE_FILE..."
+        echo "[INFO] Production service file does not exist. Creating $SERVICE_FILE..."
         # Adjust the service content as necessary.
         sudo tee "$SERVICE_FILE" > /dev/null <<EOF
 [Unit]
@@ -193,113 +190,166 @@ EnvironmentFile=-$HOME/.opam/default/env
 [Install]
 WantedBy=multi-user.target
 EOF
-        info "Reloading systemd daemon..."
+        echo "[INFO] Reloading systemd daemon..."
         sudo systemctl daemon-reload
-        info "Enabling production service..."
+        echo "[INFO] Enabling production service..."
         sudo systemctl enable ${PROD_SERVICE_NAME}
     else
-        info "Production service file already exists at $SERVICE_FILE."
+        echo "[INFO] Production service file already exists at $SERVICE_FILE."
     fi
 }
 
 # Function to run the production server using systemctl.
 function run_prod_server() {
+    compile
     ensure_prod_service
-    info "Starting the production server..."
+    echo "[INFO] Starting the production server..."
     sudo systemctl start ${PROD_SERVICE_NAME}
-    info "Production server started."
+    echo "[INFO] Production server started."
 }
 
 # Function to stop the production server using systemctl.
 function stop_prod_server() {
     ensure_prod_service
-    info "Stopping the production server..."
+    echo "[INFO] Stopping the production server..."
     sudo systemctl stop ${PROD_SERVICE_NAME}
-    info "Production server stopped."
+    echo "[INFO] Production server stopped."
 }
 
 # Function to restart the production server using systemctl.
 function restart_prod_server() {
+    compile
     ensure_prod_service
-    info "Restarting the production server..."
+    echo "[INFO] Restarting the production server..."
     sudo systemctl restart ${PROD_SERVICE_NAME}
-    info "Production server restarted."
+    echo "[INFO] Production server restarted."
 }
 
 # Function to delete the production service file.
 function delete_prod_service_file() {
     local SERVICE_FILE="/etc/systemd/system/${PROD_SERVICE_NAME}"
     if [ -f "$SERVICE_FILE" ]; then
-        info "Stopping production service if it's active..."
+        echo "[INFO] Stopping production service if it's active..."
         sudo systemctl stop ${PROD_SERVICE_NAME} 2>/dev/null
-        info "Disabling production service..."
+        echo "[INFO] Disabling production service..."
         sudo systemctl disable ${PROD_SERVICE_NAME} 2>/dev/null
-        info "Removing production service file at $SERVICE_FILE..."
+        echo "[INFO] Removing production service file at $SERVICE_FILE..."
         sudo rm -f "$SERVICE_FILE"
-        info "Reloading systemd daemon..."
+        echo "[INFO] Reloading systemd daemon..."
         sudo systemctl daemon-reload
-        info "Production service file deleted."
+        echo "[INFO] Production service file deleted."
     else
-        info "Production service file $SERVICE_FILE does not exist."
+        echo "[INFO] Production service file $SERVICE_FILE does not exist."
     fi
 }
 
 # Function to get the production server status.
 function get_prod_server_status() {
-    ensure_prod_service
-    info "Getting production server status..."
     sudo systemctl status ${PROD_SERVICE_NAME}
 }
 
 # Function to view the production server logs.
 function view_prod_server_logs() {
-    ensure_prod_service
-    info "Displaying production server logs (press Ctrl+C to exit)..."
+    echo "[INFO] Displaying production server logs (press Ctrl+C to exit)..."
     sudo journalctl -u ${PROD_SERVICE_NAME} --follow
+}
+
+# Function to link nginx with your application.
+# Checks the .env file for DOMAIN_NAME, creates the necessary
+# /etc/nginx/sites-available and sites-enabled configuration,
+# tests the nginx config, and then runs certbot to sign the SSL certificate.
+function nginx_link() {
+    if [ -z "$DOMAIN_NAME" ]; then
+        echo "[INFO] DOMAIN_NAME is not set in .env. Cannot configure nginx."
+        return 1
+    fi
+
+    # Check for nginx and certbot installation.
+    if ! command -v nginx &> /dev/null; then
+        echo "[INFO] nginx is not installed. Skipping nginx configuration."
+        return 1
+    fi
+    if ! command -v certbot &> /dev/null; then
+        echo "[INFO] certbot is not installed. Skipping nginx configuration."
+        return 1
+    fi
+
+    # Use PORT from .env if available, otherwise default to 8080.
+    local APP_PORT=${PORT:-8080}
+    local NGINX_CONF="/etc/nginx/sites-available/${DOMAIN_NAME}.conf"
+
+    echo "[INFO] Creating nginx configuration for domain ${DOMAIN_NAME} using port ${APP_PORT}..."
+    sudo tee "$NGINX_CONF" > /dev/null <<EOF
+server {
+    listen 80;
+    server_name ${DOMAIN_NAME};
+
+    location / {
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+}
+EOF
+
+    echo "[INFO] Linking configuration file to /etc/nginx/sites-enabled..."
+    sudo ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/
+
+    echo "[INFO] Testing nginx configuration..."
+    if sudo nginx -t; then
+        echo "[INFO] Nginx configuration test passed."
+    else
+        echo "[INFO] Nginx configuration test failed. Please review the configuration file."
+        return 1
+    fi
+
+    echo "[INFO] Obtaining SSL certificate with certbot..."
+    sudo certbot --nginx -d "${DOMAIN_NAME}"
 }
 
 
 if [[ "$*" == *"--init"* ]]; then
-    info "Setting up OCaml environment..."
+    echo "[INFO] Setting up OCaml environment..."
     setup_ocaml_environment "$PACKAGES" "$OCAML_VERSION"
 fi
 
 if [[ "$*" == *"--compile"* ]]; then
-    info "Compiling..."
+    echo "[INFO] Compiling..."
     # Wrap the entire compile call. If an error occurs, show a suggestion.
     if ! compile; then
-        info "Compilation encountered an error. Please try running the script with the --init flag to set up your environment."
+        echo "[INFO] Compilation encountered an error. Please try running the script with the --init flag to set up your environment."
     else
-        info "Compilation succeeded."
+        echo "[INFO] Compilation succeeded."
     fi
 fi
 
 if [[ "$*" == *"--run-dev-server"* ]]; then
-    info "Running the app..."
+    echo "[INFO] Running the app..."
     run_dev_server
 fi
 
 # Handle --run-prod-server flag.
 if [[ "$*" == *"--run-prod-server"* ]]; then
-    info "Starting production server..."
+    echo "[INFO] Starting production server..."
     run_prod_server
 fi
 
 # Handle --stop-prod-server flag.
 if [[ "$*" == *"--stop-prod-server"* ]]; then
-    info "Stopping production server..."
+    echo "[INFO] Stopping production server..."
     stop_prod_server
 fi
 
 # Handle --restart-prod-server flag.
 if [[ "$*" == *"--restart-prod-server"* ]]; then
-    info "Restarting production server..."
+    echo "[INFO] Restarting production server..."
     restart_prod_server
 fi
 
 # Handle --delete-prod-service-file flag.
 if [[ "$*" == *"--delete-prod-service-file"* ]]; then
-    info "Deleting production service file..."
+    echo "[INFO] Deleting production service file..."
     delete_prod_service_file
 fi
 
@@ -313,16 +363,25 @@ if [[ "$*" == *"--view-prod-server-logs"* ]]; then
     view_prod_server_logs
 fi
 
+if [[ "$*" == *"--nginx"* ]]; then
+    echo "[INFO] Configuring nginx for your application..."
+    nginx_link
+fi
+
+
 # If no valid flag is provided, display the help prompt.
 if [[ "$*" != *"--init"* && "$*" != *"--compile"* && "$*" != *"--run-dev-server"* && "$*" != *"--run-prod-server"* && "$*" != *"--stop-prod-server"* && "$*" != *"--restart-prod-server"* && "$*" != *"--delete-prod-service-file"* && "$*" != *"--get-prod-server-status"* && "$*" != *"--view-prod-server-logs"* ]]; then
     echo "[INFO] Usage Guide:"
     echo "  source ./compiler --init                          set up the OCaml environment and source it."
     echo "  ./compiler --compile                              compile the app"
-    echo "  ./compiler --run-dev-server                       run the app in the current session"
-    echo "  ./compiler --run-prod-server                      run the app via systemctl"
+    echo "  ./compiler --run-dev-server                       compile the app and run the app in the current session"
+    echo "  ./compiler --run-prod-server                      compile the app and run the app via systemctl"
     echo "  ./compiler --stop-prod-server                     stop the instance running via systemctl"
-    echo "  ./compiler --restart-prod-server                  restart the instance running via systemctl"
+    echo "  ./compiler --restart-prod-server                  compile the app and restart the instance running via systemctl"
     echo "  ./compiler --delete-prod-service-file             delete the production systemd service file"
     echo "  ./compiler --get-prod-server-status               get the production service status"
     echo "  ./compiler --view-prod-server-logs                follow the production service logs"
+    echo "  ./compiler --nginx                                to configure nginx and sign ssl (requires DOMAIN_NAME in .env, and nginx+cerbot pre-installed)"
 fi
+
+
