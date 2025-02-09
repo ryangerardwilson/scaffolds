@@ -1,93 +1,328 @@
 #!/bin/bash
 
-# Define all packages in one place as a comma-separated list.
-PACKAGES="cohttp-lwt-unix,dotenv,str,base64,sqlite3,yojson,owl"
+OCAML_VERSION="5.3.0"
+PACKAGES="cohttp-lwt-unix,dotenv,base64,sqlite3,yojson,owl"
 
-# Step 1: Compile modules (native code)
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 utils/database.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 utils/migrations.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 utils/renderer.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 utils/authentication.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 utils/debugger.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 lib/landing.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 lib/about.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 lib/signup.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 lib/login.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 lib/logout.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 lib/dashboard.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 lib/assets.ml
-
-ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
-    -I utils -I lib -w +33 main.ml
-
-# Step 2: Link modules (native code)
-ocamlfind ocamlopt -thread -package "$PACKAGES" -linkpkg \
-    -o app \
-    utils/database.cmx \
-    utils/migrations.cmx \
-    utils/renderer.cmx \
-    utils/authentication.cmx \
-    utils/debugger.cmx \
-    lib/landing.cmx \
-    lib/signup.cmx \
-    lib/about.cmx \
-    lib/login.cmx \
-    lib/logout.cmx \
-    lib/dashboard.cmx \
-    lib/assets.cmx \
-    main.cmx
-
-# Step 3: Clean .cmi, .cmo, .out
-# Step 3: Clean .cmi, .cmo, .cmx, .o, .out
-find . -type f \
-  \( -name "*.cmo" -o -name "*.cmi" -o -name "*.cmx" -o -name "*.o" -o -name "*.out" \) \
-  -exec rm -f {} +
-
-# Step 4: Download the tailwindcss cli, and compile the assets
-TAILWIND_CSS_URL="https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64"
-TAILWIND_CSS_BINARY=".tailwindcss-linux-x64"  # Hidden file
-INPUT_FILE=".tailwind_build_input"
-OUTPUT_FILE="resources/assets/styles.css"
-
-# Step 5: Check if the Tailwind CSS binary already exists, download it if not
-if [ ! -f "$TAILWIND_CSS_BINARY" ]; then
-    echo "[INFO] Downloading the Tailwind binary."
-    curl -sLO "$TAILWIND_CSS_URL"
-    mv "tailwindcss-linux-x64" "$TAILWIND_CSS_BINARY"
-    chmod +x "$TAILWIND_CSS_BINARY"
-    echo "[INFO] Tailwind bindary is now executable."
+# Load environment variables from .env if present.
+if [ -f .env ]; then
+    # Export variables defined in .env.
+    set -a
+    source .env
+    set +a
 fi
 
-echo "[INFO] Generating Minified Tailwind CSS."
-./"$TAILWIND_CSS_BINARY" -i "$INPUT_FILE" -o "$OUTPUT_FILE" --minify
+# Derive the production service name from the app name.
+# If APP_NAME is not set, default to ocaml-app.
+if [ -z "$APP_NAME" ]; then
+    APP_NAME="default-ocaml-app"
+fi
+PROD_SERVICE_NAME="${APP_NAME}.service"
 
-# Step 6: Optionally run
-if [[ "$1" == "--run" ]]; then
+
+# Function to display information messages
+function info() {
+    echo "[INFO] $1"
+}
+
+# Function to ensure Opam, OCaml, and required packages are installed globally.
+# Takes two arguments: a comma-separated list of packages and the OCaml version.
+function setup_ocaml_environment() {
+    local PACKAGES=$1
+    local OCAML_VERSION=$2
+
+    # Step 0: Ensure Opam is installed and configured
+    if ! command -v opam &> /dev/null; then
+        info "Opam is not installed. Installing Opam..."
+        bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh)" 2>/dev/null
+    else
+        info "Opam is already installed."
+    fi
+
+    # Initialize Opam and update the environment
+    if [ ! -d "$HOME/.opam" ]; then
+        info "Initializing Opam..."
+        opam init --disable-sandboxing -y 2>/dev/null
+        eval "$(opam env)"
+    else
+        eval "$(opam env)"
+    fi
+
+    # Ensure the specified OCaml version is installed and switch to it
+    if ! opam switch list 2>/dev/null | grep -q "$OCAML_VERSION"; then
+        info "Installing and switching to OCaml $OCAML_VERSION..."
+        opam switch create "$OCAML_VERSION" ocaml-base-compiler."$OCAML_VERSION" 2>/dev/null
+        eval "$(opam env)"
+    else
+        info "OCaml $OCAML_VERSION is already installed. Switching to it..."
+        opam switch "$OCAML_VERSION" 2>/dev/null
+        eval "$(opam env)"
+    fi
+
+    # Convert comma-separated packages to space-separated for opam install
+    local PACKAGES_SPACE
+    PACKAGES_SPACE=$(echo "$PACKAGES" | tr ',' ' ')
+
+    # Update opam and install necessary OCaml packages
+    info "Installing necessary OCaml packages: ${PACKAGES_SPACE}"
+    opam update 2>/dev/null
+    opam install -y ocamlfind $PACKAGES_SPACE 2>/dev/null
+
+    # Inform the user of the current OCaml version
+    info "Currently using OCaml version:"
+    ocaml --version
+
+    # Expose the relevant environment variables in the current session
+    info "Exposing OPAM environment variables to the current session..."
+    eval "$(opam env)"
+
+}
+
+function compile() {
+  # Step 1: Compile modules (native code)
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 utils/database.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 utils/migrations.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 utils/renderer.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 utils/authentication.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 utils/debugger.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 lib/landing.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 lib/about.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 lib/signup.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 lib/login.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 lib/logout.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 lib/dashboard.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 lib/assets.ml
+
+  ocamlfind ocamlopt -c -thread -package "$PACKAGES" \
+      -I utils -I lib -w +33 main.ml
+
+  # Step 2: Link modules (native code)
+  ocamlfind ocamlopt -thread -package "$PACKAGES" -linkpkg \
+      -o app \
+      utils/database.cmx \
+      utils/migrations.cmx \
+      utils/renderer.cmx \
+      utils/authentication.cmx \
+      utils/debugger.cmx \
+      lib/landing.cmx \
+      lib/signup.cmx \
+      lib/about.cmx \
+      lib/login.cmx \
+      lib/logout.cmx \
+      lib/dashboard.cmx \
+      lib/assets.cmx \
+      main.cmx
+
+  # Step 3: Clean .cmi, .cmo, .out
+  # Step 3: Clean .cmi, .cmo, .cmx, .o, .out
+  find . -type f \
+    \( -name "*.cmo" -o -name "*.cmi" -o -name "*.cmx" -o -name "*.o" -o -name "*.out" \) \
+    -exec rm -f {} +
+
+  # Step 4: Download the tailwindcss cli, and compile the assets
+  TAILWIND_CSS_URL="https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64"
+  TAILWIND_CSS_BINARY=".tailwindcss-linux-x64"  # Hidden file
+  INPUT_FILE=".tailwind_build_input"
+  OUTPUT_FILE="resources/assets/styles.css"
+
+  # Step 5: Check if the Tailwind CSS binary already exists, download it if not
+  if [ ! -f "$TAILWIND_CSS_BINARY" ]; then
+      echo "[INFO] Downloading the Tailwind binary."
+      curl -sLO "$TAILWIND_CSS_URL"
+      mv "tailwindcss-linux-x64" "$TAILWIND_CSS_BINARY"
+      chmod +x "$TAILWIND_CSS_BINARY"
+      echo "[INFO] Tailwind bindary is now executable."
+  fi
+
+  echo "[INFO] Generating Minified Tailwind CSS."
+  ./"$TAILWIND_CSS_BINARY" -i "$INPUT_FILE" -o "$OUTPUT_FILE" --minify
+
+  return 0
+}
+
+# Function to run the app.
+function run_dev_server() {
+  info "Running the app..."
   ./app
-else
-  echo "[INFO] Use the --run flag to compile and run the app automatically."
+}
+
+# Function to create the production systemd service if it doesn't exist.
+function ensure_prod_service() {
+    local SERVICE_FILE="/etc/systemd/system/${PROD_SERVICE_NAME}"
+
+    if [ ! -f "$SERVICE_FILE" ]; then
+        info "Production service file does not exist. Creating $SERVICE_FILE..."
+        # Adjust the service content as necessary.
+        sudo tee "$SERVICE_FILE" > /dev/null <<EOF
+[Unit]
+Description=${APP_NAME} Production Service
+After=network.target
+
+[Service]
+Type=simple
+User=${USER}
+WorkingDirectory=$(pwd)
+ExecStart=$(pwd)/app
+Restart=always
+# Optionally expose OPAM environment variables.
+Environment=OPAMSWITCH=default
+EnvironmentFile=-$HOME/.opam/default/env
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        info "Reloading systemd daemon..."
+        sudo systemctl daemon-reload
+        info "Enabling production service..."
+        sudo systemctl enable ${PROD_SERVICE_NAME}
+    else
+        info "Production service file already exists at $SERVICE_FILE."
+    fi
+}
+
+# Function to run the production server using systemctl.
+function run_prod_server() {
+    ensure_prod_service
+    info "Starting the production server..."
+    sudo systemctl start ${PROD_SERVICE_NAME}
+    info "Production server started."
+}
+
+# Function to stop the production server using systemctl.
+function stop_prod_server() {
+    ensure_prod_service
+    info "Stopping the production server..."
+    sudo systemctl stop ${PROD_SERVICE_NAME}
+    info "Production server stopped."
+}
+
+# Function to restart the production server using systemctl.
+function restart_prod_server() {
+    ensure_prod_service
+    info "Restarting the production server..."
+    sudo systemctl restart ${PROD_SERVICE_NAME}
+    info "Production server restarted."
+}
+
+# Function to delete the production service file.
+function delete_prod_service_file() {
+    local SERVICE_FILE="/etc/systemd/system/${PROD_SERVICE_NAME}"
+    if [ -f "$SERVICE_FILE" ]; then
+        info "Stopping production service if it's active..."
+        sudo systemctl stop ${PROD_SERVICE_NAME} 2>/dev/null
+        info "Disabling production service..."
+        sudo systemctl disable ${PROD_SERVICE_NAME} 2>/dev/null
+        info "Removing production service file at $SERVICE_FILE..."
+        sudo rm -f "$SERVICE_FILE"
+        info "Reloading systemd daemon..."
+        sudo systemctl daemon-reload
+        info "Production service file deleted."
+    else
+        info "Production service file $SERVICE_FILE does not exist."
+    fi
+}
+
+# Function to get the production server status.
+function get_prod_server_status() {
+    ensure_prod_service
+    info "Getting production server status..."
+    sudo systemctl status ${PROD_SERVICE_NAME}
+}
+
+# Function to view the production server logs.
+function view_prod_server_logs() {
+    ensure_prod_service
+    info "Displaying production server logs (press Ctrl+C to exit)..."
+    sudo journalctl -u ${PROD_SERVICE_NAME} --follow
+}
+
+
+if [[ "$*" == *"--init"* ]]; then
+    info "Setting up OCaml environment..."
+    setup_ocaml_environment "$PACKAGES" "$OCAML_VERSION"
 fi
 
+if [[ "$*" == *"--compile"* ]]; then
+    info "Compiling..."
+    # Wrap the entire compile call. If an error occurs, show a suggestion.
+    if ! compile; then
+        info "Compilation encountered an error. Please try running the script with the --init flag to set up your environment."
+    else
+        info "Compilation succeeded."
+    fi
+fi
+
+if [[ "$*" == *"--run-dev-server"* ]]; then
+    info "Running the app..."
+    run_dev_server
+fi
+
+# Handle --run-prod-server flag.
+if [[ "$*" == *"--run-prod-server"* ]]; then
+    info "Starting production server..."
+    run_prod_server
+fi
+
+# Handle --stop-prod-server flag.
+if [[ "$*" == *"--stop-prod-server"* ]]; then
+    info "Stopping production server..."
+    stop_prod_server
+fi
+
+# Handle --restart-prod-server flag.
+if [[ "$*" == *"--restart-prod-server"* ]]; then
+    info "Restarting production server..."
+    restart_prod_server
+fi
+
+# Handle --delete-prod-service-file flag.
+if [[ "$*" == *"--delete-prod-service-file"* ]]; then
+    info "Deleting production service file..."
+    delete_prod_service_file
+fi
+
+# Handle --get-prod-server-status flag.
+if [[ "$*" == *"--get-prod-server-status"* ]]; then
+    get_prod_server_status
+fi
+
+# Handle --view-prod-server-logs flag.
+if [[ "$*" == *"--view-prod-server-logs"* ]]; then
+    view_prod_server_logs
+fi
+
+# If no valid flag is provided, display the help prompt.
+if [[ "$*" != *"--init"* && "$*" != *"--compile"* && "$*" != *"--run-dev-server"* && "$*" != *"--run-prod-server"* && "$*" != *"--stop-prod-server"* && "$*" != *"--restart-prod-server"* && "$*" != *"--delete-prod-service-file"* && "$*" != *"--get-prod-server-status"* && "$*" != *"--view-prod-server-logs"* ]]; then
+    echo "[INFO] Usage Guide:"
+    echo "  source ./compiler --init                          set up the OCaml environment and source it."
+    echo "  ./compiler --compile                              compile the app"
+    echo "  ./compiler --run-dev-server                       run the app in the current session"
+    echo "  ./compiler --run-prod-server                      run the app via systemctl"
+    echo "  ./compiler --stop-prod-server                     stop the instance running via systemctl"
+    echo "  ./compiler --restart-prod-server                  restart the instance running via systemctl"
+    echo "  ./compiler --delete-prod-service-file             delete the production systemd service file"
+    echo "  ./compiler --get-prod-server-status               get the production service status"
+    echo "  ./compiler --view-prod-server-logs                follow the production service logs"
+fi

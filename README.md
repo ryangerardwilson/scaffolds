@@ -44,6 +44,23 @@ To run the application, execute it with the `--scaffold` flag followed by the di
 
 Make sure to replace `<target_directory>` with the actual path where you want scaffolding operations to be executed.
 
+Then, move into your project directory and source the Ocaml environment initialized by the compiler
+
+    cd <target_directory>
+    source ./compiler --init
+
+Finally, run the app in the current session, or via systemctl, via the compiler. See complete list of compiler flags below.
+
+    source ./compiler --init                          set up the OCaml environment and source it.
+    ./compiler --compile                              compile the app
+    ./compiler --run-dev-server                       run the app in the current session
+    ./compiler --run-prod-server                      run the app via systemctl
+    ./compiler --stop-prod-server                     stop the instance running via systemctl
+    ./compiler --restart-prod-server                  restart the instance running via systemctl
+    ./compiler --delete-prod-service-file             delete the production systemd service file
+    ./compiler --get-prod-server-status               get the production service status
+    ./compiler --view-prod-server-logs                follow the production service logs
+
 ## 5. License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
