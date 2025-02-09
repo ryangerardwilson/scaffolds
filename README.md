@@ -36,7 +36,7 @@ An OCaml-powered web application framework with syntax so pretty, you'd want to 
     sudo apt update
     sudo apt upgrade
 
-## 4. Usage
+## 4. Quick Start
 
 To run the application, execute it with the `--scaffold` flag followed by the directory path you want to scaffold:
 
@@ -49,7 +49,11 @@ Then, move into your project directory and source the Ocaml environment initiali
     cd <target_directory>
     source ./compiler --init
 
-Finally, run the app in the current session, or via systemctl, via the compiler. See complete list of compiler flags below.
+Finally, run the app via systemctl, with the compiler. And, serve to nginx - assuming you have specified a `DOMAIN_NAME` in the .env, pointed its `A` record towards your IP address, and installed nginx and certbot.
+
+    ./compiler --run-prod-server --nginx
+
+See complete list of compiler flags below.
 
     source ./compiler --init                          set up the OCaml environment and source it.
     ./compiler --compile                              compile the app
