@@ -49,7 +49,7 @@ main = do
 
   putStrLn asciiArt
 
-  let version = "2.0.28-1"
+  let version = "2.0.32-1"
   putStrLn $ "Version: " ++ version
 
   args <- getArgs
